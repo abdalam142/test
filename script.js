@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', function(){
+
     /**************************************************************************
      * مفاتيح التخزين المحلية
      **************************************************************************/
@@ -84,7 +84,7 @@ document.addEventListener('DOMContentLoaded', function(){
     /**************************************************************************
      * مساعدة الرسائل (بديل للـ alert/prompt/confirm)
      **************************************************************************/
-    function createToastElement(type, text, options={}) {
+    function createToastElement(type, text, options={}){
       const el = document.createElement('div');
       el.className = 'toast ' + (type||'info');
       const msg = document.createElement('div'); msg.className = 'msg'; msg.textContent = text;
@@ -95,7 +95,7 @@ document.addEventListener('DOMContentLoaded', function(){
       return el;
     }
 
-    function showToast(type, text, {autoHide = true, timeout = 4500} = {}) {
+    function showToast(type, text, {autoHide = true, timeout = 4500} = {}){
       const el = createToastElement(type, text);
       messagesPanel.appendChild(el);
       if(autoHide){
@@ -105,7 +105,7 @@ document.addEventListener('DOMContentLoaded', function(){
     }
 
     // Generic dialog that returns Promise
-    function showDialog({title = '', message = '', type = 'alert', inputType = 'text', placeholder = ''} = {}) {
+    function showDialog({title = '', message = '', type = 'alert', inputType = 'text', placeholder = ''} = {}){
       return new Promise((resolve) => {
         dialogTitle.textContent = title || '';
         dialogMsg.textContent = message || '';
@@ -922,74 +922,4 @@ document.addEventListener('DOMContentLoaded', function(){
       loadFinalFromStorage();
       setTimeout(()=>{ try{ searchBar.focus(); }catch(e){} }, 200);
     });
-
-
-    // === زر تصدير PDF للمنتجات المختارة (21 منتج في الصفحة: 3 أعمدة × 7 صفوف) ===
-    const exportPdfBtn = document.getElementById('exportPdfBtn');
-    if(exportPdfBtn){
-      exportPdfBtn.addEventListener('click', function(){
-        const items = Array.from(finalMap.values()).filter(e => e.status !== 'cancelled' && (e.status==='received' || !e.status));
-        if(!items || items.length === 0){ showToast('error', 'لا توجد منتجات مختارة لتصديرها.'); return; }
-
-        const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF('p', 'mm', 'a4');
-        const pageWidth = 210, pageHeight = 297;
-        const margin = 10;
-        const cols = 3;
-        const rowsPerPage = 7;
-        const gap = 5;
-        const boxW = 60;
-        const boxH = 35;
-
-        let x = margin, y = margin;
-        let count = 0;
-
-        items.forEach((entry, idx) => {
-          const name = getCell(entry.rowArray, NAME_IDX) || '';
-          const code = (getCell(entry.rowArray, QR_IDX) || getCell(entry.rowArray, CODE_IDX) || '').toString();
-
-          // Draw container
-          pdf.setDrawColor(180);
-          pdf.rect(x, y, boxW, boxH);
-
-          // Title (name)
-          pdf.setFontSize(10);
-          const nameLines = pdf.splitTextToSize(String(name), boxW-6);
-          pdf.text(nameLines, x+3, y+8);
-
-          // Generate barcode in a temporary canvas using JsBarcode
-          try {
-            const canvas = document.createElement('canvas');
-            JsBarcode(canvas, code || ' ', { format: "CODE128", displayValue: false, height: 40, width: 1, margin: 0 });
-            const imgData = canvas.toDataURL('image/png');
-            // Place barcode image
-            pdf.addImage(imgData, 'PNG', x + 5, y + 12, boxW - 10, 15);
-            // code text under barcode
-            pdf.setFontSize(8);
-            pdf.text(String(code), x + boxW/2, y + boxH - 4, { align: 'center' });
-          } catch(e){
-            // fallback: just print the code text
-            pdf.setFontSize(9);
-            pdf.text(String(code), x + 5, y + boxH/2);
-          }
-
-          count++;
-          x += boxW + gap;
-
-          if(count % cols === 0){
-            x = margin;
-            y += boxH + gap;
-          }
-
-          if(count % (cols * rowsPerPage) === 0 && idx !== items.length - 1){
-            pdf.addPage();
-            x = margin;
-            y = margin;
-          }
-        });
-
-        pdf.save('selected_products.pdf');
-      });
-    }
-
-});
+  
