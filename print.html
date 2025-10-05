@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <title>صفحة طباعة المنتجات</title>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 10mm;
+    }
+    body {
+      font-family: "Tahoma", "Arial", sans-serif;
+      direction: rtl;
+      background: #fff;
+      margin: 0;
+      padding: 0;
+      color: #000;
+    }
+    header {
+      text-align: center;
+      padding: 10px;
+      border-bottom: 1px solid #ccc;
+      margin-bottom: 10px;
+    }
+    header h1 {
+      font-size: 20px;
+      margin: 0;
+    }
+    .controls {
+      text-align: center;
+      margin-bottom: 12px;
+    }
+    .controls button {
+      background: #2c7be5;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 14px;
+      margin: 3px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .controls button:hover {
+      background: #1a5ac9;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin: 0 auto;
+      width: 95%;
+      page-break-inside: avoid;
+    }
+    .item {
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      height: 120px;
+      box-sizing: border-box;
+      page-break-inside: avoid;
+    }
+    .item h3 {
+      font-size: 12px;
+      margin: 3px 0 2px 0;
+      text-align: center;
+      line-height: 1.2;
+      height: 28px;
+      overflow: hidden;
+    }
+    .item .price {
+      font-size: 11px;
+      color: #333;
+      margin-bottom: 2px;
+    }
+    .item svg {
+      width: 90%;
+      height: 40px;
+      margin-top: auto;
+    }
+    footer {
+      text-align: center;
+      font-size: 11px;
+      color: #666;
+      margin: 10px 0;
+    }
+    @media print {
+      .controls, header, footer {
+        display: none !important;
+      }
+      body {
+        margin: 0;
+      }
+      .grid {
+        page-break-after: always;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>صفحة طباعة المنتجات المختارة</h1>
+    <div id="templateInfo" style="font-size:13px;color:#555"></div>
+  </header>
+
+  <div class="controls">
+    <button onclick="window.print()">🖨️ طباعة الصفحة</button>
+    <button onclick="window.location.href='index.html'">↩️ رجوع</button>
+  </div>
+
+  <div id="container"></div>
+
+  <footer>
+    <div id="footerText"></div>
+  </footer>
+
+  <script>
+    (function() {
+      const container = document.getElementById('container');
+      const infoEl = document.getElementById('templateInfo');
+      const footerText = document.getElementById('footerText');
+      const STORAGE_KEY = 'print_items_v2';
+      const payloadRaw = localStorage.getItem(STORAGE_KEY);
+      if (!payloadRaw) {
+        container.innerHTML = '<p style="text-align:center;color:red">لم يتم العثور على بيانات للطباعة.</p>';
+        return;
+      }
+
+      let payload = {};
+      try { payload = JSON.parse(payloadRaw); } catch (e) {
+        container.innerHTML = '<p style="text-align:center;color:red">فشل قراءة بيانات الطباعة.</p>';
+        return;
+      }
+      const { templateNumber, items, generatedAt } = payload;
+
+      infoEl.textContent = `القالب رقم: ${templateNumber || 'غير معروف'} — عدد المنتجات: ${items.length}`;
+      footerText.textContent = `تم إنشاء الصفحة في: ${new Date(generatedAt || Date.now()).toLocaleString('ar-EG')}`;
+
+      if (!Array.isArray(items) || items.length === 0) {
+        container.innerHTML = '<p style="text-align:center">لا توجد منتجات للطباعة.</p>';
+        return;
+      }
+
+      // إنشاء الصفحات (كل صفحة تحتوي 21 عنصر)
+      const chunkSize = 21;
+      for (let i = 0; i < items.length; i += chunkSize) {
+        const chunk = items.slice(i, i + chunkSize);
+        const grid = document.createElement('div');
+        grid.className = 'grid';
+        chunk.forEach(item => {
+          const div = document.createElement('div');
+          div.className = 'item';
+          const nameEl = document.createElement('h3');
+          nameEl.textContent = item.name || '';
+          div.appendChild(nameEl);
+
+          const priceEl = document.createElement('div');
+          priceEl.className = 'price';
+          priceEl.textContent = `السعر: ${item.price || '-'}`;
+          div.appendChild(priceEl);
+
+          const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          try {
+            const code = (item.barcode || item.scale || item.name || '').toString();
+            JsBarcode(svg, code, { format: "CODE128", displayValue: false, height: 40, width: 1.2, margin: 0 });
+          } catch(e) {
+            const fallback = document.createElement('div');
+            fallback.textContent = '—';
+            fallback.style.fontSize = '10px';
+            fallback.style.color = '#888';
+            div.appendChild(fallback);
+          }
+          div.appendChild(svg);
+          grid.appendChild(div);
+        });
+        container.appendChild(grid);
+      }
+    })();
+  </script>
+</body>
+</html>
