@@ -680,3 +680,316 @@ document.addEventListener('DOMContentLoaded', function(){
       addOrUpdateFinal(rowArray, v);
 
       searchBar.value = "";
+      try{ searchBar.focus(); }catch(e){}
+      closeModal();
+    }
+
+    modalConfirm.addEventListener('click', modalConfirmHandler);
+
+    /**************************************************************************
+     * export
+     **************************************************************************/
+    function exportToExcel(includeCancelled=false){
+      const rows = [];
+      rows.push(["اسم المنتج","كود الميزان","العدد/الوزن","QR/Barcode","التاريخ","الحالة"]);
+      for(const entry of Array.from(finalMap.values())){
+        if(!includeCancelled && entry.status==='cancelled') continue;
+        const r = entry.rowArray || [];
+        const name = getCell(r, NAME_IDX) || "";
+        const code = getCell(r, CODE_IDX) || "";
+        const qty = entry.qty || "";
+        const qr = getCell(r, QR_IDX) || "";
+        const created = entry.createdAt || "";
+        const status = entry.status || "";
+        rows.push([name, code, qty, qr, created, status]);
+      }
+
+      let html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" lang="ar"><head><meta http-equiv="content-type" content="text/html; charset=utf-8"/></head><body>';
+      html += '<table border="1" style="border-collapse:collapse; font-family: Arial, sans-serif;">';
+      html += '<thead><tr>';
+      rows[0].forEach(h => html += `<th style="background:#cfe2ff; font-weight:bold; padding:8px 12px; text-align:center;">${h}</th>`);
+      html += '</tr></thead><tbody>';
+      for(let i=1;i<rows.length;i++){
+        html += '<tr>';
+        rows[i].forEach(cell => html += `<td style="padding:6px 10px; text-align:center;">${cell}</td>`);
+        html += '</tr>';
+      }
+      html += '</tbody></table></body></html>';
+
+      const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'export_selected.xls';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast('success','تم تصدير ملف الإكسل');
+    }
+
+    exportBtn.addEventListener('click', ()=> exportToExcel(false));
+
+    /**************************************************************************
+     * Barcode modal (show larger printable barcode)
+     **************************************************************************/
+    function showBarcodeModal(text){
+      const code = String(text || '');
+      const win = window.open('', '_blank', 'width=520,height=300');
+      const doc = win.document;
+      doc.open();
+      doc.write('<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>Barcode</title>');
+      doc.write('<style>body{font-family:Arial,sans-serif;text-align:center;padding:20px} .info{word-break:break-all;margin-top:12px}</style>');
+      doc.write('</head><body>');
+      doc.write('<h3>رمز خطي (Barcode)</h3>');
+      doc.write('<div id="barcode"></div>');
+      doc.write('<div class="info">' + escapeHtml(code) + '</div>');
+      doc.write('</body></html>');
+      doc.close();
+      try {
+        const svg = win.document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', '480');
+        svg.setAttribute('height', '120');
+        win.document.getElementById('barcode').appendChild(svg);
+        JsBarcode(svg, code, { format: "CODE128", displayValue: true, height: 80, width: 2, margin: 10 });
+      } catch(e){}
+    }
+
+    /**************************************************************************
+     * QR Scanner (html5-qrcode)
+     **************************************************************************/
+    function chooseBackCamera(devices){
+      if(!devices || devices.length === 0) return null;
+      const keywords = ["back","rear","env","environment","back camera","rear camera","الكاميرا الخلفية","خلفي"];
+      for(const d of devices){
+        const label = (d.label || "").toString().toLowerCase();
+        for(const k of keywords) if(label.includes(k)) return d.id || d.deviceId || (d.id ?? d.deviceId);
+      }
+      if(devices.length > 1){
+        const last = devices[devices.length - 1];
+        return last.id || last.deviceId || (last.id ?? last.deviceId);
+      }
+      const first = devices[0];
+      return first.id || first.deviceId || (first.id ?? first.deviceId);
+    }
+
+    async function startScanner(){
+      reader.style.display = 'block';
+      cameraBtn.textContent = '⏹ إيقاف الماسح';
+      try{
+        qrScanner = new Html5Qrcode("reader");
+        const devices = await Html5Qrcode.getCameras().catch(()=>[]);
+        const chosen = chooseBackCamera(devices);
+        const cameraIdOrConfig = chosen ? chosen : { facingMode: "environment" };
+
+        await qrScanner.start(
+          cameraIdOrConfig,
+          { fps: 10, qrbox: 250 },
+          (decodedText, decodedResult) => {
+            try {
+              const now = Date.now();
+              if(decodedText === lastScan.text && (now - lastScan.time) < lastScan.tol){
+                lastScan.time = now; return;
+              }
+              lastScan.text = decodedText; lastScan.time = now;
+
+              if(modalOpen) return;
+
+              searchBar.value = decodedText;
+              try{ search(true, decodedText); }catch(e){}
+            } catch(err){
+              console.error('scan callback err', err);
+            }
+          },
+          (errMsg) => { /* ignore frame errors */ }
+        );
+        scannerRunning = true;
+        cameraBtn.textContent = '⏹ إيقاف الماسح';
+      }catch(err){
+        showToast('error', 'فشل تشغيل الكاميرا: ' + (err && err.message ? err.message : err));
+        reader.style.display = 'none';
+        scannerRunning = false;
+        cameraBtn.textContent = '📷 QR';
+      }
+    }
+
+    async function stopScanner(){
+      if(!qrScanner) return;
+      try{ await qrScanner.stop(); }catch(e){}
+      try{ qrScanner.clear(); }catch(e){}
+      qrScanner = null;
+      reader.style.display = 'none';
+      scannerRunning = false;
+      cameraBtn.textContent = '📷 QR';
+    }
+
+    cameraBtn.addEventListener('click', ()=> { if(scannerRunning) stopScanner(); else startScanner(); });
+
+    /**************************************************************************
+     * Admin mode (client-side) - using in-page prompts
+     **************************************************************************/
+    function isAdminSession(){ return sessionStorage.getItem(STORAGE_KEY_ADMIN_SESSION) === '1'; }
+
+    async function setAdminPass(){
+      const p1 = await showPrompt('من فضلك ضع كلمة مرور الأدمن (ستُخزن على جهازك محليًا). احفظها في مكان آمن:', {placeholder: 'كلمة المرور', inputType: 'password'});
+      if(!p1) { showToast('info','لم يتم ضبط كلمة المرور'); return; }
+      const p2 = await showPrompt('أعد إدخال كلمة المرور لتأكيدها:', {placeholder: 'أعد إدخال كلمة المرور', inputType: 'password'});
+      if(p1 !== p2) { showToast('error','كلمات المرور غير متطابقة'); return; }
+      const hash = await sha256(p1);
+      localStorage.setItem(STORAGE_KEY_ADMIN_HASH, hash);
+      showToast('success','تم ضبط كلمة مرور الأدمن محليًا. استخدم "وضع الأدمن" للدخول.');
+    }
+
+    async function unlockAdmin(){
+      const stored = localStorage.getItem(STORAGE_KEY_ADMIN_HASH);
+      if(!stored){
+        const setup = await showConfirm('لا يوجد كلمة مرور للأدمن. هل تريد إعداد واحدة الآن؟');
+        if(!setup) return;
+        await setAdminPass();
+        return;
+      }
+      const p = await showPrompt('أدخل كلمة مرور الأدمن:', {placeholder: 'كلمة المرور', inputType: 'password'});
+      if(!p) return;
+      const h = await sha256(p);
+      if(h === stored){
+        sessionStorage.setItem(STORAGE_KEY_ADMIN_SESSION, '1');
+        showToast('success','تم تفعيل وضع الأدمن (مؤقت حتى إغلاق التبويب).');
+        renderFinals();
+      } else {
+        showToast('error','كلمة المرور غير صحيحة.');
+      }
+    }
+
+    function lockAdmin(){
+      sessionStorage.removeItem(STORAGE_KEY_ADMIN_SESSION);
+      showToast('info','تم إيقاف وضع الأدمن');
+      renderFinals();
+    }
+
+    adminBtn.addEventListener('click', async ()=>{
+      if(isAdminSession()){
+        const ok = await showConfirm('هل تريد الخروج من وضع الأدمن؟'); if(ok) lockAdmin();
+      } else {
+        await unlockAdmin();
+      }
+    });
+
+    async function sha256(msg){
+      const enc = new TextEncoder();
+      const data = enc.encode(msg);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = hashArray.map(b => b.toString(16).padStart(2,'0')).join('');
+      return hashHex;
+    }
+
+    /**************************************************************************
+     * Prevent refresh while there are selected products (keep but also show in-page notice)
+     **************************************************************************/
+    window.addEventListener('beforeunload', function(e){
+      if(Array.from(finalMap.values()).some(e=> e.status==='received' || !e.status)){
+        const msg = 'لديك منتجات مختارة محفوظة محليًا — تحديث أو إغلاق الصفحة قد يؤثر على تجربتك. هل أنت متأكد؟';
+        e.preventDefault();
+        e.returnValue = msg;
+        return msg;
+      }
+    });
+
+    function updatePersistentNotice(){
+      const active = Array.from(finalMap.values()).filter(e=> e.status==='received' || !e.status).length;
+      if(active > 0){ persistentNotice.style.display = ''; document.getElementById('persistentText').textContent = `لديك ${active} منتجات محفوظة محليًا — ستظل محفوظة حتى تحذفها.`; }
+      else { persistentNotice.style.display = 'none'; }
+    }
+    dismissPersistent.addEventListener('click', ()=> { persistentNotice.style.display = 'none'; });
+
+    /**************************************************************************
+     * UI bindings & startup
+     **************************************************************************/
+    searchBtn.addEventListener('click', ()=> search(false));
+    clearBtn.addEventListener('click', clearSearch);
+    scaleBtn.addEventListener('click', toggleScaleFilter);
+    clearResultsBtn.addEventListener('click', ()=> { resultsTbody.innerHTML = ""; checkClearResults(); });
+    clearAllBtnEl.addEventListener('click', clearAllSelected);
+    exportBtn.addEventListener('click', ()=> exportToExcel(false));
+    showCancelledBtn.addEventListener('click', ()=> { showCancelled = !showCancelled; renderFinals(); showCancelledBtn.textContent = showCancelled ? 'إخفاء الملغى' : 'إظهار الملغى'; });
+
+    searchBar.addEventListener('keydown', function(e){ if(e.key === 'Enter'){ e.preventDefault(); search(false); } });
+
+    receiveModalOverlay.addEventListener('click', function(e){ if(e.target === receiveModalOverlay) closeModal(); });
+
+    window.addEventListener('load', async function(){
+      await tryAutoLoadExcel();
+      loadFinalFromStorage();
+      setTimeout(()=>{ try{ searchBar.focus(); }catch(e){} }, 200);
+    });
+
+
+    // === زر تصدير PDF للمنتجات المختارة (21 منتج في الصفحة: 3 أعمدة × 7 صفوف) ===
+    const exportPdfBtn = document.getElementById('exportPdfBtn');
+    if(exportPdfBtn){
+      exportPdfBtn.addEventListener('click', function(){
+        const items = Array.from(finalMap.values()).filter(e => e.status !== 'cancelled' && (e.status==='received' || !e.status));
+        if(!items || items.length === 0){ showToast('error', 'لا توجد منتجات مختارة لتصديرها.'); return; }
+
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pageWidth = 210, pageHeight = 297;
+        const margin = 10;
+        const cols = 3;
+        const rowsPerPage = 7;
+        const gap = 5;
+        const boxW = 60;
+        const boxH = 35;
+
+        let x = margin, y = margin;
+        let count = 0;
+
+        items.forEach((entry, idx) => {
+          const name = getCell(entry.rowArray, NAME_IDX) || '';
+          const code = (getCell(entry.rowArray, QR_IDX) || getCell(entry.rowArray, CODE_IDX) || '').toString();
+
+          // Draw container
+          pdf.setDrawColor(180);
+          pdf.rect(x, y, boxW, boxH);
+
+          // Title (name)
+          pdf.setFontSize(10);
+          const nameLines = pdf.splitTextToSize(String(name), boxW-6);
+          pdf.text(nameLines, x+3, y+8);
+
+          // Generate barcode in a temporary canvas using JsBarcode
+          try {
+            const canvas = document.createElement('canvas');
+            JsBarcode(canvas, code || ' ', { format: "CODE128", displayValue: false, height: 40, width: 1, margin: 0 });
+            const imgData = canvas.toDataURL('image/png');
+            // Place barcode image
+            pdf.addImage(imgData, 'PNG', x + 5, y + 12, boxW - 10, 15);
+            // code text under barcode
+            pdf.setFontSize(8);
+            pdf.text(String(code), x + boxW/2, y + boxH - 4, { align: 'center' });
+          } catch(e){
+            // fallback: just print the code text
+            pdf.setFontSize(9);
+            pdf.text(String(code), x + 5, y + boxH/2);
+          }
+
+          count++;
+          x += boxW + gap;
+
+          if(count % cols === 0){
+            x = margin;
+            y += boxH + gap;
+          }
+
+          if(count % (cols * rowsPerPage) === 0 && idx !== items.length - 1){
+            pdf.addPage();
+            x = margin;
+            y = margin;
+          }
+        });
+
+        pdf.save('selected_products.pdf');
+      });
+    }
+
+});
