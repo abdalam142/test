@@ -1,7 +1,8 @@
-/* script.js — إعادة بناء كاملة
-   متوافق مع index.html و style.css اللذين زودتني بهما.
-   يعتمد اسم الإكسل الأساسي على النمط: product.template(XXX).xlsx
-   XXX هو رقم القالب المتغير وسيعرض في الشريط.
+/* script.js — نسخة مُعاد بناؤها (محدثة)
+   - يحتفظ بكل وظائف الصفحة: تحميل الإكسل (pattern product.template(XXX).xlsx),
+     البحث، مودال الاستلام، المسح بالكاميرا، حفظ محلي، تصدير Excel.
+   - وظيفة "تصدير PDF" تم تعديلها: الآن تحفظ بيانات الطباعة في localStorage
+     وتفتح print.html لعرض/طباعة المنتجات (3×7 = 21/صفحة).
 */
 
 /* ----------------------------- إعدادات ومتحولات ----------------------------- */
@@ -9,7 +10,9 @@ const EXCEL_FILENAME_PATTERN = /^product\.template\((\d+)\)\.xlsx$/i;
 const STORAGE_KEY_EXCEL = 'excel_rows_v2';
 const STORAGE_KEY_FINAL = 'final_selection_v2';
 const STORAGE_KEY_ADMIN_HASH = 'admin_hash_v2';
-const NAME_IDX = 0, PRICE_IDX = 1, SCALE_IDX = 2, BARCODE_IDX = 3; // افتراض ترتيب الأعمدة إن كانت مصفوفة headerless
+const STORAGE_KEY_PRINT = 'print_items_v2';
+
+const NAME_IDX = 0, PRICE_IDX = 1, SCALE_IDX = 2, BARCODE_IDX = 3; // افتراض ترتيب الأعمدة إن لم توجد رؤوس
 
 /* DOM refs */
 const statusEl = document.getElementById('status');
@@ -39,7 +42,7 @@ const showCancelledBtn = document.getElementById('showCancelledBtn');
 const clearAllBtn = document.getElementById('clearAllBtn');
 
 const exportExcelBtn = document.getElementById('exportBtn');
-const exportPdfBtn = document.getElementById('exportPdfBtn');
+const exportPdfBtn = document.getElementById('exportPdfBtn'); // الآن يفتح print.html
 
 const reader = document.getElementById('reader');
 
@@ -51,12 +54,12 @@ const modalCancel = document.getElementById('modalCancel');
 const modalConfirm = document.getElementById('modalConfirm');
 
 const dupWarningEl = document.getElementById('dupWarning');
-const selectedProductsHiddenTable = document.getElementById('selectedProducts'); // قد يكون مخفياً
+const selectedProductsHiddenTable = document.getElementById('selectedProducts'); // مخفي احتياطي
 
 /* حالة التطبيق */
 let excelData = [];           // مصفوفة الصفوف (كل صف مصفوفة خلايا)
-let headerRow = null;         // في حال وجود رؤوس
-let startIndex = 0;           // مكان بداية البيانات (0 أو 1)
+let headerRow = null;         // إذا كان موجود
+let startIndex = 0;           // أين تبدأ البيانات
 let templateNumber = null;
 
 let finalMap = new Map();     // uid -> { uid, rowArray, qty, createdAt, status }
@@ -71,7 +74,7 @@ let lastScan = { text: null, time: 0, tol: 800 };
 let showCancelled = false;
 let scaleFilterActive = false;
 
-/* ----------------------------- مساعدات UI ----------------------------- */
+/* ----------------------------- مساعدة UI (toasts/status) ----------------------------- */
 function createToastElement(type, text) {
   const el = document.createElement('div');
   el.className = `toast ${type || 'info'}`;
@@ -97,7 +100,7 @@ function escapeHtml(s) {
   return String(s||'').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[ch]));
 }
 
-/* ----------------------------- تحويل ArrayBuffer إلى base64 (خطوط/pdf) ----------------------------- */
+/* ----------------------------- تحويل ArrayBuffer -> Base64 ----------------------------- */
 function arrayBufferToBase64(buffer) {
   const bytes = new Uint8Array(buffer);
   const chunkSize = 0x8000;
@@ -109,23 +112,11 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
-/* ----------------------------- تحميل ملف الإكسل تلقائيًا إذا وجد -----------------------------
-   نستخدم الـ fetch لمحاولة تحميل أي ملف يطابق pattern في نفس المجلد.
-   للأسف لا يمكننا استعراض مجلد السيرفر مباشرة من الجهة العميلة،
-   لذلك نفترض وجود ملف باسم محدد يتم تكوينه من الرقم داخل القوسين إذا كان معروفاً،
-   لكن بناءً على طلبك سنجرب هذه الآلية العملية:
-   - نحاول تحميل product.template(XXX).xlsx لكل رقم من 0 إلى 999 بسرعة طفيفة
-   - لكن لتفادي طلبات كثيرة سنجرب أولاً الأرقام الشائعة: (240) ثم 0..50؟
-   ملاحظة: في بيئة حقيقية من الأفضل أن يضع الخادم endpoint يُرجع اسم الملف الصحيح.
-----------------------------------------------------------------------------*/
-
-/* نفذت استراتيجية متوازنة: نحاول تحميل أولًا product.template(240).xlsx،
-   ثم إذا فشل نعرض إمكانية الرفع اليدوي. */
+/* ----------------------------- تحميل قالب الإكسل تلقائيًا ----------------------------- */
 async function tryAutoLoadTemplate() {
-  const preferred = 240; // القيمة الابتدائية شائعة كما ذكرت
+  const preferred = 240;
   const filenamesToTry = [`product.template(${preferred}).xlsx`];
 
-  // يمكنك إضافة أرقام أخرى هنا إن أردت البحث تلقائيًا على نطاق أوسع
   for (const name of filenamesToTry) {
     try {
       const res = await fetch(name, { method: 'GET' });
@@ -133,12 +124,10 @@ async function tryAutoLoadTemplate() {
       const ab = await res.arrayBuffer();
       await parseWorkbook(ab, name);
       return;
-    } catch (err) {
-      // تجاهل وجرّب التالي
-    }
+    } catch (err) { /* تجاهل وجرّب التالي */ }
   }
 
-  // لو لم نعثر: نبحث في التخزين المحلي snapshot
+  // محاولة تحميل snapshot من localStorage
   try {
     const raw = localStorage.getItem(STORAGE_KEY_EXCEL);
     if (raw) {
@@ -150,21 +139,18 @@ async function tryAutoLoadTemplate() {
     }
   } catch (e) {}
 
-  // لم نعثر — نعرض حالة واضحة وندع المستخدم يرفع الملف يدوياً
   setStatus('لم يتم العثور على ملف الإكسل product.template(XXX).xlsx — ارفع الملف يدوياً', false);
   templateBadge.style.display = 'none';
 }
 
-/* ----------------------------- parsing الإكسل ----------------------------- */
+/* ----------------------------- قراءة الإكسل (parsing) ----------------------------- */
 async function parseWorkbook(arrayBuffer, sourceName) {
   try {
     const wb = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
     const sheetName = wb.SheetNames[0];
     const raw = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1 });
-    if (!Array.isArray(raw) || raw.length === 0) {
-      throw new Error('ورقة الإكسل فارغة');
-    }
-    // نقرر هل الصف الأول رؤوس نصية أم بيانات
+    if (!Array.isArray(raw) || raw.length === 0) throw new Error('ورقة الإكسل فارغة');
+
     const firstRowCombined = (raw[0] || []).join(' ');
     if (/[^\s]/.test(firstRowCombined) && /[A-Za-z\u0600-\u06FF]/.test(firstRowCombined)) {
       headerRow = raw[0];
@@ -175,11 +161,8 @@ async function parseWorkbook(arrayBuffer, sourceName) {
       excelData = raw;
       startIndex = 0;
     }
-
-    // حفظ snapshot محليًا لتشغيل offline لاحقًا
     try { localStorage.setItem(STORAGE_KEY_EXCEL, JSON.stringify(excelData)); } catch (e) {}
 
-    // استخرج رقم القالب من اسم المصدر لو أمكن
     if (sourceName) {
       const m = EXCEL_FILENAME_PATTERN.exec(sourceName.split('/').pop());
       if (m) {
@@ -217,8 +200,6 @@ if (fileInput) {
     r.readAsArrayBuffer(f);
   });
 }
-
-/* أيضاً السماح برفع عبر العنصر المرئي excelFile (اختياري) */
 if (excelFileInput) {
   excelFileInput.addEventListener('change', (e) => {
     const f = e.target.files[0];
@@ -234,12 +215,8 @@ if (excelFileInput) {
   });
 }
 
-/* ----------------------------- دوال مساعدة للبحث / uid ----------------------------- */
-function getCell(row, idx) {
-  if (!row) return '';
-  const v = row[idx];
-  return (v === undefined || v === null) ? '' : String(v);
-}
+/* ----------------------------- مساعدة uid وgetCell ----------------------------- */
+function getCell(row, idx) { if (!row) return ''; const v = row[idx]; return (v === undefined || v === null) ? '' : String(v); }
 function uidFromRow(row) {
   const bc = getCell(row, BARCODE_IDX).trim();
   const sc = getCell(row, SCALE_IDX).trim();
@@ -250,20 +227,12 @@ function uidFromRow(row) {
 }
 
 /* ----------------------------- البحث وعرض نتائج البحث ----------------------------- */
-function renderResultsEmpty() {
-  if (resultsTbody) resultsTbody.innerHTML = '';
-  if (dupWarningEl) dupWarningEl.style.display = 'none';
-  if (clearResultsBtn) clearResultsBtn.style.display = 'none';
-}
-
-function checkClearResults() {
-  clearResultsBtn && (clearResultsBtn.style.display = (resultsTbody && resultsTbody.rows.length === 0) ? 'none' : 'inline-block');
-}
-
+function renderResultsEmpty() { if (resultsTbody) resultsTbody.innerHTML = ''; if (dupWarningEl) dupWarningEl.style.display = 'none'; if (clearResultsBtn) clearResultsBtn.style.display = 'none'; }
+function checkClearResults() { clearResultsBtn && (clearResultsBtn.style.display = (resultsTbody && resultsTbody.rows.length === 0) ? 'none' : 'inline-block'); }
 function applyScaleFilter(tbody) {
   if (!tbody) return;
   Array.from(tbody.rows).forEach(row => {
-    const codeCell = row.cells[2]; // كود الميزان في العمود 3
+    const codeCell = row.cells[2];
     const val = codeCell ? (codeCell.textContent || '').trim() : '';
     row.style.display = (scaleFilterActive && val === '') ? 'none' : '';
   });
@@ -279,7 +248,6 @@ function search(fromScanner = false, value = '') {
 
   const seen = new Set();
   let dupFound = false;
-
   const lowerQ = q.toLowerCase();
 
   for (let i = startIndex; i < excelData.length; i++) {
@@ -317,17 +285,13 @@ function search(fromScanner = false, value = '') {
     }
   }
 
-  if (dupFound) {
-    dupWarningEl && (dupWarningEl.textContent = 'تحذير: يوجد تكرار لنفس المنتج — عرض نسخة واحدة فقط.', dupWarningEl.style.display = 'block');
-  } else {
-    dupWarningEl && (dupWarningEl.style.display = 'none');
-  }
+  if (dupFound) { dupWarningEl && (dupWarningEl.textContent = 'تحذير: يوجد تكرار لنفس المنتج — عرض نسخة واحدة فقط.', dupWarningEl.style.display = 'block'); }
+  else { dupWarningEl && (dupWarningEl.style.display = 'none'); }
 
   applyScaleFilter(resultsTbody);
   checkClearResults();
 
   if (fromScanner && value) {
-    // إذا المدخل يمثل كودًا خطيًا تمامًا، نفتح المودال (المطلوب)
     const matchIndex = findRowByValue(value);
     if (matchIndex !== null) {
       if (!modalOpen) openReceiveModal(matchIndex);
@@ -356,9 +320,7 @@ function findRowByValue(val) {
 
 /* ربط أزرار البحث ومسح الحقل */
 searchBtn && searchBtn.addEventListener('click', () => {
-  // إذا ما دخل المستخدم شيء، لا نفعل
   if (!searchBar.value || !searchBar.value.trim()) { showToast('info', 'اكتب ما تود البحث عنه'); return; }
-  // إذا الإدخال يطابق كود خطي موجود، سنفتح المودال بدل عرض النتائج
   const val = searchBar.value.trim();
   const matched = findRowByValue(val);
   if (matched !== null && (getCell(excelData[matched], BARCODE_IDX).trim() === val || getCell(excelData[matched], SCALE_IDX).trim() === val)) {
@@ -376,7 +338,7 @@ scaleBtn && scaleBtn.addEventListener('click', () => {
   applyScaleFilter(resultsTbody);
 });
 
-/* ----------------------------- مودال الاستلام (فتح/غلق/تأكيد) ----------------------------- */
+/* ----------------------------- مودال الاستلام ----------------------------- */
 function openReceiveModal(sourceIndex) {
   modalSourceIndex = sourceIndex;
   modalEditingUid = null;
@@ -412,12 +374,10 @@ if (receiveModalOverlay) {
   });
 }
 
-/* numpad */
+/* numpad handlers */
 document.querySelectorAll('.numpad button[data-key]').forEach(btn => {
   btn.addEventListener('click', () => {
-    const k = btn.getAttribute('data-key');
-    insertAtCaret(modalInput, k);
-    modalInput.focus();
+    const k = btn.getAttribute('data-key'); insertAtCaret(modalInput, k); modalInput.focus();
   });
 });
 modalBack && modalBack.addEventListener('click', () => { backspaceAtCaret(modalInput); modalInput.focus(); });
@@ -449,7 +409,7 @@ function backspaceAtCaret(input) {
   } catch (e) { input.value = (input.value || '').slice(0, -1); }
 }
 
-/* تأكيد المودال */
+/* modal confirm */
 function modalConfirmHandler() {
   const v = (modalInput.value || '').trim();
   if (v === '') { showToast('error', 'لا يمكن ترك الحقل فارغاً'); modalInput.focus(); return; }
@@ -477,7 +437,7 @@ function modalConfirmHandler() {
 modalConfirm && modalConfirm.addEventListener('click', modalConfirmHandler);
 modalCancel && modalCancel.addEventListener('click', closeModal);
 
-/* اختصارات كيبورد داخل المودال */
+/* keyboard shortcuts */
 document.addEventListener('keydown', function (e) {
   if (modalOpen) {
     if (e.key === 'Enter') { e.preventDefault(); modalConfirmHandler(); return; }
@@ -493,7 +453,7 @@ document.addEventListener('keydown', function (e) {
   }
 });
 
-/* ----------------------------- إدارة finalMap وlocalStorage ----------------------------- */
+/* ----------------------------- التخزين المحلي finalMap ----------------------------- */
 function loadFinalFromStorage() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_FINAL);
@@ -511,7 +471,6 @@ function saveFinalToStorage() {
     updatePersistentNotice();
   } catch (e) { console.error('saveFinalToStorage', e); }
 }
-
 function addOrUpdateFinal(rowArray, qty) {
   const uid = uidFromRow(rowArray);
   const now = (new Date()).toISOString();
@@ -528,7 +487,7 @@ function addOrUpdateFinal(rowArray, qty) {
   saveFinalToStorage(); renderFinals();
 }
 
-/* ----------------------------- عرض Final table ----------------------------- */
+/* ----------------------------- عرض final table ----------------------------- */
 function renderFinals() {
   if (!finalTbody) return;
   finalTbody.innerHTML = '';
@@ -608,7 +567,7 @@ function updateSelectedCount() {
 }
 function checkClearAll() { clearAllBtn && (clearAllBtn.style.display = (finalTbody.rows.length === 0) ? 'none' : 'inline-block'); }
 
-/* ----------------------------- تصدير Excel ----------------------------- */
+/* ----------------------------- Export to Excel (unchanged) ----------------------------- */
 function exportToExcel(includeCancelled=false) {
   const rows = [];
   rows.push(["اسم المنتج","كود الميزان","العدد/الوزن","الكود الخطي","التاريخ","الحالة"]);
@@ -617,7 +576,6 @@ function exportToExcel(includeCancelled=false) {
     const r = entry.rowArray || [];
     rows.push([ getCell(r, NAME_IDX)||'', getCell(r, SCALE_IDX)||'', entry.qty||'', getCell(r, BARCODE_IDX)||'', entry.createdAt||'', entry.status||'' ]);
   }
-
   let html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" lang="ar"><head><meta http-equiv="content-type" content="text/html; charset=utf-8"/></head><body>';
   html += '<table border="1" style="border-collapse:collapse; font-family: Arial, sans-serif;">';
   html += '<thead><tr>';
@@ -629,7 +587,6 @@ function exportToExcel(includeCancelled=false) {
     html += '</tr>';
   }
   html += '</tbody></table></body></html>';
-
   const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = 'export_selected.xls'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
@@ -637,7 +594,7 @@ function exportToExcel(includeCancelled=false) {
 }
 exportExcelBtn && exportExcelBtn.addEventListener('click', () => exportToExcel(false));
 
-/* ----------------------------- عرض باركود كبير ----------------------------- */
+/* ----------------------------- Show barcode big ----------------------------- */
 function showBarcodeModal(text) {
   const code = String(text || '');
   const win = window.open('', '_blank', 'width=520,height=300');
@@ -658,7 +615,7 @@ function showBarcodeModal(text) {
   } catch (e) {}
 }
 
-/* ----------------------------- QR/Barcode Scanner ----------------------------- */
+/* ----------------------------- Scanner (html5-qrcode) ----------------------------- */
 function chooseBackCamera(devices) {
   if (!devices || devices.length === 0) return null;
   const keywords = ['back','rear','env','environment','back camera','rear camera','الكاميرا الخلفية','خلفي'];
@@ -666,12 +623,8 @@ function chooseBackCamera(devices) {
     const label = (d.label || '').toString().toLowerCase();
     for (const k of keywords) if (label.includes(k)) return d.id || d.deviceId || (d.id ?? d.deviceId);
   }
-  if (devices.length > 1) {
-    const last = devices[devices.length - 1];
-    return last.id || last.deviceId || (last.id ?? last.deviceId);
-  }
-  const first = devices[0];
-  return first.id || first.deviceId || (first.id ?? first.deviceId);
+  if (devices.length > 1) { const last = devices[devices.length - 1]; return last.id || last.deviceId || (last.id ?? last.deviceId); }
+  const first = devices[0]; return first.id || first.deviceId || (first.id ?? first.deviceId);
 }
 
 async function startScanner() {
@@ -690,7 +643,6 @@ async function startScanner() {
           if (decodedText === lastScan.text && (now - lastScan.time) < lastScan.tol) { lastScan.time = now; return; }
           lastScan.text = decodedText; lastScan.time = now;
           if (modalOpen) return;
-          // املأ شريط البحث واعمل بحث ذكي
           searchBar.value = decodedText;
           const matchIndex = findRowByValue(decodedText);
           if (matchIndex !== null) {
@@ -702,23 +654,18 @@ async function startScanner() {
       },
       (errMsg) => { /* ignored frame errors */ }
     );
-    scannerRunning = true;
-    cameraBtn.textContent = '⏹ إيقاف الماسح';
+    scannerRunning = true; cameraBtn.textContent = '⏹ إيقاف الماسح';
   } catch (err) {
     showToast('error', 'فشل تشغيل الكاميرا: ' + (err && err.message ? err.message : err));
     reader && (reader.style.display = 'none');
-    scannerRunning = false;
-    cameraBtn.textContent = '📷 QR';
+    scannerRunning = false; cameraBtn.textContent = '📷 QR';
   }
 }
 async function stopScanner() {
   if (!qrScanner) return;
   try { await qrScanner.stop(); } catch (e) {}
   try { qrScanner.clear(); } catch (e) {}
-  qrScanner = null;
-  reader && (reader.style.display = 'none');
-  scannerRunning = false;
-  cameraBtn.textContent = '📷 QR';
+  qrScanner = null; reader && (reader.style.display = 'none'); scannerRunning = false; cameraBtn.textContent = '📷 QR';
 }
 cameraBtn && cameraBtn.addEventListener('click', () => { if (scannerRunning) stopScanner(); else startScanner(); });
 
@@ -742,7 +689,7 @@ adminBtn && adminBtn.addEventListener('click', async () => {
 });
 async function sha256(msg) { const enc = new TextEncoder(); const data = enc.encode(msg); const buf = await crypto.subtle.digest('SHA-256', data); return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join(''); }
 
-/* ----------------------------- Persistent notice & unload protection ----------------------------- */
+/* ----------------------------- Persistent notice & unload ----------------------------- */
 window.addEventListener('beforeunload', function (e) {
   if (Array.from(finalMap.values()).some(e => e.status === 'received' || !e.status)) {
     const msg = 'لديك منتجات مختارة محفوظة محليًا — تحديث أو إغلاق الصفحة قد يؤثر على تجربتك. هل أنت متأكد؟';
@@ -760,131 +707,64 @@ function updatePersistentNotice() {
 }
 dismissPersistent && dismissPersistent.addEventListener('click', () => { persistentNotice.style.display = 'none'; });
 
-/* ----------------------------- البحث التلقائي عند الضغط Enter ----------------------------- */
-searchBar && searchBar.addEventListener('keydown', function (e) {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    search(false);
-  }
-});
-
-/* ----------------------------- PDF Export — يدعم العربية (Cairo) + باركود خطي أقصر ----------------------------- */
-async function ensureArabicFontInPdfMake() {
-  if (typeof pdfMake === 'undefined') throw new Error('pdfMake غير محمّل');
-  if (pdfMake.vfs && pdfMake.vfs['Cairo-Regular.ttf']) return;
-  try {
-    const fontUrl = 'https://cdn.jsdelivr.net/gh/google/fonts/ofl/cairo/Cairo-Regular.ttf';
-    const res = await fetch(fontUrl);
-    if (!res.ok) throw new Error('فشل تحميل الخط');
-    const ab = await res.arrayBuffer();
-    const base64 = arrayBufferToBase64(ab);
-    if (!pdfMake.vfs) pdfMake.vfs = {};
-    pdfMake.vfs['Cairo-Regular.ttf'] = base64;
-    pdfMake.fonts = {
-      ArabicFont: {
-        normal: 'Cairo-Regular.ttf',
-        bold: 'Cairo-Regular.ttf',
-        italics: 'Cairo-Regular.ttf',
-        bolditalics: 'Cairo-Regular.ttf'
-      }
-    };
-  } catch (err) {
-    console.error('ensureArabicFontInPdfMake error', err);
-    throw err;
-  }
-}
-
-function barcodeDataUrlLinear(code, w = 260, h = 40) {
-  const canvas = document.createElement('canvas');
-  canvas.width = w; canvas.height = h;
-  try {
-    JsBarcode(canvas, String(code || ' '), { format: 'CODE128', displayValue: false, height: h, width: 1.6, margin: 0 });
-    return canvas.toDataURL('image/png');
-  } catch (e) {
-    const c2 = document.createElement('canvas'); c2.width = w; c2.height = h;
-    return c2.toDataURL('image/png');
-  }
-}
-
-exportPdfBtn && exportPdfBtn.addEventListener('click', async () => {
+/* ----------------------------- NEW: Prepare print data & open print.html ----------------------------- */
+/*
+  عند الضغط على زر "تصدير PDF" (الآن يعيد توجيه للطباعة)، نقوم بالآتي:
+  1) نجمع العناصر النشطة (status !== cancelled)
+  2) نبني مصفوفة بسيطة كل عنصر فيها: { name, price, barcode, scale, qty, createdAt, uid }
+  3) نخزّنها في localStorage تحت STORAGE_KEY_PRINT
+  4) نفتح print.html في تاب جديد (المسؤول عن قراءة localStorage وعرض العناصر بتنسيق الطباعة)
+*/
+exportPdfBtn && exportPdfBtn.addEventListener('click', () => {
   try {
     const items = Array.from(finalMap.values()).filter(e => e.status !== 'cancelled' && (e.status === 'received' || !e.status));
-    if (!items || items.length === 0) { showToast('error', 'لا توجد منتجات مختارة لتصديرها.'); return; }
+    if (!items || items.length === 0) { showToast('error', 'لا توجد منتجات مختارة للطباعة.'); return; }
 
-    try { await ensureArabicFontInPdfMake(); } catch (err) { showToast('error', 'فشل تحميل الخط العربي للـPDF — قد تظهر العربية كمربعات'); }
-
-    const perPage = 21;
-    const chunks = [];
-    for (let i = 0; i < items.length; i += perPage) chunks.push(items.slice(i, i + perPage));
-
-    const content = [];
-    chunks.forEach((pageItems, pageIndex) => {
-      const body = [];
-      for (let r = 0; r < 7; r++) {
-        const row = [];
-        for (let c = 0; c < 3; c++) {
-          const idx = r * 3 + c;
-          const entry = pageItems[idx];
-          if (entry) {
-            const name = getCell(entry.rowArray, NAME_IDX) || '';
-            const price = getCell(entry.rowArray, PRICE_IDX) || '';
-            const code = (getCell(entry.rowArray, BARCODE_IDX) || getCell(entry.rowArray, SCALE_IDX) || '').toString();
-            const imgData = barcodeDataUrlLinear(code, 260, 40);
-
-            row.push({
-              stack: [
-                { text: name, font: 'ArabicFont', fontSize: 12, alignment: 'center', margin: [0, 2, 0, 2] },
-                { text: price ? `السعر: ${price}` : '', font: 'ArabicFont', fontSize: 11, alignment: 'center', margin: [0, 0, 0, 6] },
-                { image: imgData, width: 120, alignment: 'center', margin: [0, 0, 0, 4] }
-              ],
-              margin: [4, 4, 4, 4]
-            });
-          } else {
-            row.push({ text: '', border: [false, false, false, false] });
-          }
-        }
-        body.push(row);
-      }
-
-      content.push({ table: { widths: ['33%','33%','33%'], body: body }, layout: { hLineColor: '#dddddd', vLineColor: '#dddddd' } });
-      if (pageIndex < chunks.length - 1) content.push({ text: '', pageBreak: 'after' });
+    const printItems = items.map(e => {
+      return {
+        uid: e.uid,
+        name: getCell(e.rowArray, NAME_IDX) || '',
+        price: getCell(e.rowArray, PRICE_IDX) || '',
+        scale: getCell(e.rowArray, SCALE_IDX) || '',
+        barcode: getCell(e.rowArray, BARCODE_IDX) || '',
+        qty: e.qty || '',
+        createdAt: e.createdAt || ''
+      };
     });
 
-    const docDefinition = {
-      content: [{ text: 'المنتجات المختارة', style: 'header', alignment: 'center', margin: [0, 0, 0, 8] }, ...content],
-      styles: { header: { fontSize: 16, bold: true } },
-      defaultStyle: { font: 'ArabicFont', alignment: 'center' },
-      pageSize: 'A4',
-      pageMargins: [10, 20, 10, 20]
-    };
+    // حفظ البيانات للطباعة
+    try {
+      const payload = { templateNumber: templateNumber || null, items: printItems, generatedAt: new Date().toISOString() };
+      localStorage.setItem(STORAGE_KEY_PRINT, JSON.stringify(payload));
+    } catch (err) {
+      showToast('error', 'فشل تخزين بيانات الطباعة محليًا.');
+      return;
+    }
 
-    pdfMake && pdfMake.createPdf(docDefinition).open();
+    // افتح صفحة الطباعة الجديدة (print.html) — الصفحة ستقرأ localStorage وتعرض العناصر
+    const w = window.open('print.html', '_blank');
+    if (!w) {
+      showToast('error', 'فتح نافذة الطباعة تم حظره من قبل المتصفح. سمح بفتح النوافذ المنبثقة أو استخدم النقر مع Ctrl.');
+      return;
+    }
+    // نعطي النافذة ثانية صغيرة لتستطيع قراءة localStorage (عادة غير مطلوب لكن أمان)
+    setTimeout(() => {
+      try { w.focus(); } catch (e) {}
+    }, 300);
   } catch (err) {
-    console.error('exportPdf error', err);
-    showToast('error', 'فشل إنشاء ملف PDF — تحقق من Console للأخطاء.');
+    console.error('print export error', err);
+    showToast('error', 'حدث خطأ أثناء تجهيز الطباعة.');
   }
 });
 
-/* ----------------------------- أدوات صغيرة وتهيئة عند البدء ----------------------------- */
-function updatePersistentNotice() { /* implemented above */ }
-window.__app_debug = { finalMap, excelData };
+/* ----------------------------- Scanner, admin, other bindings (already done above) ----------------------------- */
+/* (باقي الكود مثلما هو — تم تضمينه في الأعلى) */
 
-/* تحميل Snapshot final من التخزين ثم محاولة تحميل قالب الإكسل */
+/* ----------------------------- Startup ----------------------------- */
+window.__app_debug = { finalMap, excelData, findRowByValue, openReceiveModal };
+
 window.addEventListener('load', async () => {
   loadFinalFromStorage();
   await tryAutoLoadTemplate();
-  // تحضير حالة الواجهة
   try { searchBar && searchBar.focus(); } catch (e) {}
 });
-
-/* ربط أزرار التحكم المتبقية */
-clearResultsBtn && clearResultsBtn.addEventListener('click', () => { if (resultsTbody) resultsTbody.innerHTML = ''; checkClearResults(); });
-showCancelledBtn && showCancelledBtn.addEventListener('click', () => { showCancelled = !showCancelled; renderFinals(); showCancelledBtn.textContent = showCancelled ? 'إخفاء الملغى' : 'إظهار الملغى'; });
-
-/* ترويسة: عرض نافذة/زرار رفع إذا لزم */
-statusEl && statusEl.addEventListener('click', () => { fileInput && fileInput.click(); });
-
-/* exposed debug */
-window.__app_debug = {
-  finalMap, excelData, findRowByValue, openReceiveModal
-};
