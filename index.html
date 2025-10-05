@@ -3,20 +3,20 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=1200" />
-  <title>بحث في المنتجات</title>
+  <title>بحث في المنتجات — GitHub Pages</title>
 
-  <!-- مكتبات (CDNs) -->
+  <!-- مكتبات -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <!-- ملف CSS منفصل -->
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <h2>بحث في المنتجات</h2>
 
-  <div id="status" title="دبل كليك لرفع ملف Excel محلي">جارٍ محاولة تحميل ملف الإكسل...</div>
+  <div id="status" title="دبل كليك لرفع ملف الإكسل محلي">جارٍ محاولة تحميل ملف الإكسل...</div>
 
   <!-- messages area -->
   <div id="messagesPanel" aria-live="polite"></div>
@@ -80,6 +80,7 @@
         </table>
         <div style="margin-top:8px; text-align:left;">
           <button id="exportBtn" class="btn primary">تصدير إكسل</button>
+          <button id="exportPdfBtn" class="btn primary" style="margin-left:8px">تصدير PDF</button>
         </div>
       </div>
     </div>
@@ -128,7 +129,6 @@
   <!-- ملف رفع مخفي -->
   <input id="fileInput" type="file" accept=".xlsx,.xls" style="display:none" />
 
-  <!-- ملف JS منفصل -->
   <script src="script.js"></script>
 </body>
 </html>
