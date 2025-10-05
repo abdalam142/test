@@ -65,10 +65,10 @@
       page-break-inside: avoid;
     }
     .item h3 {
-      font-size: 10px;
+      font-size: 25px;
       margin: 3px 0 2px 0;
       text-align: center;
-      line-height: 1.2;
+      line-height: 1.5;
       height: 28px;
       overflow: hidden;
     }
@@ -166,7 +166,7 @@
           const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
           try {
             const code = (item.barcode || item.scale || item.name || '').toString();
-            JsBarcode(svg, code, { format: "CODE128", displayValue: false, height: 20, width: 1.2, margin: 0 });
+            JsBarcode(svg, code, { format: "CODE128", displayValue: false, height: 20, width: 1, margin: 0 });
           } catch(e) {
             const fallback = document.createElement('div');
             fallback.textContent = '—';
