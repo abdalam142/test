@@ -2,144 +2,130 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <title>صفحة طباعة المنتجات</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>صفحة طباعة المنتجات — محسَّنة</title>
+  <!-- JsBarcode (fallback loader in script below if CDN fails) -->
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
   <style>
-    @page {
-      size: A4 portrait;
-      margin: 10mm;
+    /* صفحة A4 - هوامش مطبوعة آمنة */
+    @page { size: A4 portrait; margin: 12mm; }
+
+    :root{
+      --item-height: 39mm; /* تقريبًا: 297mm / 7 صفوف مع هوامش */
+      --barcode-height: 10mm; /* ارتفاع الباركود داخل كل عنصر */
+      --gap: 4mm;
+      --font-family: Tahoma, Arial, sans-serif;
     }
 
-    body {
-      font-family: "Tahoma", "Arial", sans-serif;
-      background: #ffffff;
+    html,body{ height:100%; }
+    body{
+      font-family: var(--font-family);
+      margin:0;
       direction: rtl;
-      margin: 0;
-      padding: 0;
-      color: #000000;
+      color: #000;
+      background: #fff;
     }
 
-    header {
-      text-align: center;
-      padding: 10px 0;
-      border-bottom: 1px solid #ff0000;
-      margin-bottom: 10px;
+    header{
+      text-align:center;
+      padding:8px 6mm;
+      border-bottom:1px solid #d32f2f;
+      margin-bottom:6px;
     }
 
-    header h1 {
-      font-size: 18px;
-      margin: 0;
-    }
+    header h1{ font-size:16px; margin:0; }
+    #templateInfo { font-size:12px; color:#444; margin-top:4px }
 
-    .controls {
-      text-align: center;
-      margin-bottom: 12px;
+    .controls{ text-align:center; margin-bottom:8px }
+    .controls button{
+      background:#ff0800; color:#fff; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-size:13px; margin:3px;
     }
+    .controls button:hover{ filter:brightness(.95); }
 
-    .controls button {
-      background: #ff0800;
-      color: #ffffff;
-      border: none;
-      border-radius: 6px;
-      padding: 8px 14px;
-      margin: 3px;
-      cursor: pointer;
-      font-size: 14px;
-    }
-
-    .controls button:hover {
-      background: #1a5ac9;
-    }
-
-    /* الشبكة الأساسية */
-    .grid {
+    /* شبكة 3 أعمدة */
+    .grid{
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 8px;
-      width: 95%;
-      margin: 0 auto;
-      page-break-inside: avoid;
-    }
-
-    /* كل منتج */
-    .item {
-      border: 1px solid #000000;
-      border-radius: 0%;
-      padding: 6px;
-      height: 120px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      align-items: center;
+      gap: var(--gap);
+      width: calc(100% - 24mm);
+      margin: 0 auto 6mm auto;
       box-sizing: border-box;
-      page-break-inside: avoid;
     }
 
-    /* القسم العلوي (الاسم + السعر) */
-    .info {
-      height: 100%;
-      width: 100%;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      text-align: center;
+    .page{ page-break-after: always; }
+
+    /* عنصر المنتج بصيغ مطبوعة (طول بالملم) */
+    .item{
+      border: 1px solid #111;
+      padding: 3mm;
+      height: var(--item-height);
+      box-sizing: border-box;
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+      align-items:center;
+      overflow:hidden; /* نحافظ على المساحة المحجوزة */
+      background: #fff;
     }
 
-    .info h3 {
-      font-size: 20px;
-      margin: 0;
-      line-height: 1.3;
-      max-height: 45%;
-      overflow: hidden;
+    .info{
+      width:100%;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      text-align:center;
+      padding:0 2mm;
+      box-sizing:border-box;
+      /* المساحة المتاحة للاسم والسعر = ارتفاع العنصر - ارتفاع الباركود - بعض البادينغ */
+      min-height: calc(var(--item-height) - var(--barcode-height) - 6mm);
     }
 
-    .info .price {
-      font-size: 13px;
-      margin-top: 4px;
-      color: #333;
+    .info h3{
+      margin:0;
+      line-height:1.05;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      white-space: normal;
+      font-size: 14px; /* البداية - سيتم تعديلها ديناميكيًا */
+      text-align:center;
+      width:100%;
+      max-width:100%;
     }
 
-    /* القسم السفلي (الباركود الخطي) */
-    .barcode {
-      height: 28%;
-      width: 100%;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    }
-
-    .barcode svg {
-      width: 90%;
-      height: 100%;
-    }
-
-    footer {
-      text-align: center;
+    .price{
       font-size: 11px;
-      color: #666;
-      margin: 10px 0;
+      margin-top:4px;
+      color:#333;
+      width:100%;
     }
 
-    @media print {
-      .controls, header, footer {
-        display: none !important;
-      }
+    .barcode{
+      height: var(--barcode-height);
+      width:100%;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      box-sizing:border-box;
+      padding-top:2mm;
+    }
 
-      body {
-        margin: 0;
-      }
+    .barcode svg{ width:95%; height:100%; display:block; }
 
-      .grid {
-        page-break-after: always;
-      }
+    .barcode-fallback{ font-size:10px; color:#666; word-break:break-all; }
+
+    footer{ text-align:center; font-size:11px; color:#666; margin:10px 0 }
+
+    @media print{
+      .controls, header, footer{ display:none !important }
+      body{ margin:0 }
     }
   </style>
 </head>
 <body>
   <header>
     <h1>صفحة طباعة المنتجات المختارة</h1>
-    <div id="templateInfo" style="font-size:13px;color:#555"></div>
+    <div id="templateInfo"></div>
   </header>
 
   <div class="controls">
@@ -147,102 +133,200 @@
     <button onclick="window.location.href='index.html'">↩️ رجوع</button>
   </div>
 
-  <div id="container"></div>
+  <main id="container"></main>
 
   <footer>
     <div id="footerText"></div>
   </footer>
 
   <script>
-    (function() {
+    (function(){
+      const STORAGE_KEY = 'print_items_v2';
       const container = document.getElementById('container');
       const infoEl = document.getElementById('templateInfo');
       const footerText = document.getElementById('footerText');
-      const STORAGE_KEY = 'print_items_v2';
-      const payloadRaw = localStorage.getItem(STORAGE_KEY);
 
-      if (!payloadRaw) {
-        container.innerHTML = '<p style="text-align:center;color:red">لم يتم العثور على بيانات للطباعة.</p>';
-        return;
-      }
+      function safeParse(json){ try{ return JSON.parse(json); }catch(e){ return null; } }
 
-      let payload = {};
-      try {
-        payload = JSON.parse(payloadRaw);
-      } catch (e) {
-        container.innerHTML = '<p style="text-align:center;color:red">فشل قراءة بيانات الطباعة.</p>';
-        return;
-      }
-
-      const { templateNumber, items, generatedAt } = payload;
-
-      infoEl.textContent = `القالب رقم: ${templateNumber || 'غير معروف'} — عدد المنتجات: ${items.length}`;
-      footerText.textContent = `تم إنشاء الصفحة في: ${new Date(generatedAt || Date.now()).toLocaleString('ar-EG')}`;
-
-      if (!Array.isArray(items) || items.length === 0) {
-        container.innerHTML = '<p style="text-align:center">لا توجد منتجات للطباعة.</p>';
-        return;
-      }
-
-      // تقسيم المنتجات إلى صفحات (21 منتج في الصفحة)
-      const chunkSize = 21;
-      for (let i = 0; i < items.length; i += chunkSize) {
-        const chunk = items.slice(i, i + chunkSize);
-        const grid = document.createElement('div');
-        grid.className = 'grid';
-
-        chunk.forEach(item => {
-          const div = document.createElement('div');
-          div.className = 'item';
-
-          const infoDiv = document.createElement('div');
-          infoDiv.className = 'info';
-
-          const nameEl = document.createElement('h3');
-          nameEl.textContent = item.name || '';
-          infoDiv.appendChild(nameEl);
-
-          const priceEl = document.createElement('div');
-          priceEl.className = 'price';
-          priceEl.textContent = `السعر: ${item.price || '-'}`;
-          infoDiv.appendChild(priceEl);
-
-          div.appendChild(infoDiv);
-
-          const barcodeDiv = document.createElement('div');
-          barcodeDiv.className = 'barcode';
-
-          // create SVG for linear barcode
-          const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-          barcodeDiv.appendChild(svg);
-          div.appendChild(barcodeDiv);
-
-          const code = (item.barcode || item.scale || item.name || '').toString();
-
-          try {
-            // توليد رمز خطي (Code128). اضبط height/width حسب الحاجة.
-            JsBarcode(svg, code || '-', {
-              format: "CODE128",
-              displayValue: false,
-              height: 40,
-              width: 1,
-              margin: 0
-            });
-          } catch (e) {
-            svg.remove();
-            const fallback = document.createElement('div');
-            fallback.textContent = '—';
-            fallback.style.fontSize = '10px';
-            fallback.style.color = '#888';
-            barcodeDiv.appendChild(fallback);
-          }
-
-          grid.appendChild(div);
+      // تحميل JsBarcode إذا لم يكن مُحمَّلاً (يحاول مرة واحدة)
+      function ensureJsBarcode(){
+        return new Promise((resolve, reject) => {
+          if (typeof JsBarcode !== 'undefined') return resolve();
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js';
+          s.onload = () => resolve();
+          s.onerror = () => reject(new Error('فشل تحميل مكتبة JsBarcode من CDN'));
+          document.head.appendChild(s);
         });
-
-        container.appendChild(grid);
       }
+
+      // تصغير الخط حتى يتسع النص داخل العنصر المحدد (قياسات بيكسل)
+      function fitTextToElement(el, {maxSizePx = 16, minSizePx = 8, step = 0.5} = {}){
+        if (!el) return;
+        // تأكد أن العنصر مرئي ومضاف للـ DOM
+        let computed = window.getComputedStyle(el);
+        el.style.whiteSpace = 'normal';
+        el.style.lineHeight = '1.05';
+        let size = maxSizePx;
+        el.style.fontSize = size + 'px';
+        // إذا كانت الخاصية clientHeight صفر (لم يُعرض بعد)، نفعل reflow
+        // تكرار تقليدي للتصغير
+        while (el.scrollHeight > el.clientHeight && size > minSizePx){
+          size = Math.max(minSizePx, +(size - step).toFixed(2));
+          el.style.fontSize = size + 'px';
+          // safety: اذا وصلنا للحد الأدنى نوقف
+          if (size <= minSizePx) break;
+        }
+      }
+
+      // هاش بسيط لإنتاج قيمة رقمية احتياطية للباركود
+      function hashCode(str){
+        let h = 0;
+        for (let i=0;i<str.length;i++){ h = ((h << 5) - h) + str.charCodeAt(i); h |= 0; }
+        return Math.abs(h);
+      }
+
+      // توليد الباركود مع محاولات متنوعة وفالباك نصي
+      function generateBarcode(svgEl, item, fallbackIndex){
+        if (!svgEl) return false;
+        const candidates = [];
+        if (item.barcode) candidates.push(String(item.barcode));
+        if (item.scale) candidates.push(String(item.scale));
+        if (item.sku) candidates.push(String(item.sku));
+        if (item.id) candidates.push(String(item.id));
+
+        // جرب كل مرشح كما هو
+        for (const c of candidates){
+          try{
+            JsBarcode(svgEl, c, { format: 'CODE128', displayValue: false, height: 40, width: 1.05, margin: 0 });
+            return true;
+          }catch(e){ /* pass */ }
+        }
+
+        // حاول تعقيم النص لإزالة الـ non-ASCII (Code128 يدعم ASCII فقط)
+        for (const c of candidates){
+          const ascii = c.replace(/[^\x00-\x7F]/g, '');
+          if (!ascii) continue;
+          try{
+            JsBarcode(svgEl, ascii, { format: 'CODE128', displayValue: false, height: 40, width: 1.05, margin:0 });
+            return true;
+          }catch(e){ /* pass */ }
+        }
+
+        // توليد كود رقمي احتياطي قابل للمسح (ليس مثالياً لإدارة المخزون لكن يعمل كـ fallback)
+        const fallback = 'P' + String(hashCode(item.name || String(fallbackIndex))).padStart(12, '0').slice(-12);
+        try{
+          JsBarcode(svgEl, fallback, { format: 'CODE128', displayValue: false, height: 40, width: 1.05, margin:0 });
+          return true;
+        }catch(e){ /* pass */ }
+
+        // إذا فشلنا تمامًا نحذف الـ SVG ونعرض نصًا بديلًا
+        return false;
+      }
+
+      // قراءة البيانات - الشكل المتوقع: { templateNumber, items: [{ name, price, barcode, ...}, ...], generatedAt }
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw){
+        container.innerHTML = '<p style="text-align:center;color:red;padding:12px">لم يتم العثور على بيانات للطباعة. ضع بيانات JSON في localStorage بالمفتاح: ' + STORAGE_KEY + '</p>';
+        return;
+      }
+
+      const payload = safeParse(raw);
+      if (!payload || !Array.isArray(payload.items)){
+        container.innerHTML = '<p style="text-align:center;color:red;padding:12px">بيانات الطباعة غير صالحة أو مفقودة.</p>';
+        return;
+      }
+
+      const items = payload.items;
+      infoEl.textContent = `القالب رقم: ${payload.templateNumber || 'غير معروف'} — عدد المنتجات: ${items.length}`;
+      footerText.textContent = `تم إنشاء الصفحة في: ${new Date(payload.generatedAt || Date.now()).toLocaleString('ar-EG')}`;
+
+      // نحاول تحميل JsBarcode ثم نتابع، لكن إن فشل فالـ barcode سيظهر كنص بديل
+      ensureJsBarcode().catch((err) => {
+        console.warn(err && err.message ? err.message : err);
+      }).finally(() => {
+        // تقسيم إلى صفحات: 21 منتج في الصفحة (7 صفوف × 3 أعمدة)
+        const chunkSize = 21;
+        const pages = Math.ceil(items.length / chunkSize);
+
+        for (let p = 0; p < pages; p++){
+          const chunk = items.slice(p * chunkSize, p * chunkSize + chunkSize);
+          const page = document.createElement('section');
+          page.className = 'page';
+          const grid = document.createElement('div');
+          grid.className = 'grid';
+
+          chunk.forEach((item, localIdx) => {
+            const div = document.createElement('div');
+            div.className = 'item';
+
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'info';
+
+            const nameEl = document.createElement('h3');
+            nameEl.textContent = item.name || '-';
+            infoDiv.appendChild(nameEl);
+
+            const priceEl = document.createElement('div');
+            priceEl.className = 'price';
+            priceEl.textContent = `السعر: ${item.price || '-'}`;
+            infoDiv.appendChild(priceEl);
+
+            div.appendChild(infoDiv);
+
+            const barcodeDiv = document.createElement('div');
+            barcodeDiv.className = 'barcode';
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            barcodeDiv.appendChild(svg);
+            div.appendChild(barcodeDiv);
+
+            grid.appendChild(div);
+          });
+
+          page.appendChild(grid);
+          container.appendChild(page);
+
+          // بعد الإضافة للـ DOM - نضبط الخط ونولد الباركود لكل عنصر في الصفحة
+          const itemsOnPage = grid.querySelectorAll('.item');
+          itemsOnPage.forEach((div, li) => {
+            const idxGlobal = p * chunkSize + li;
+            const item = items[idxGlobal];
+            const nameEl = div.querySelector('h3');
+            const priceEl = div.querySelector('.price');
+
+            // نجرب تصغير النص ليلائم المساحة المتاحة
+            // المساحة المتاحة = infoDiv.clientHeight - price height تقريبًا
+            fitTextToElement(nameEl, { maxSizePx: 16, minSizePx: 8, step: 0.5 });
+
+            const svg = div.querySelector('svg');
+            const ok = (typeof JsBarcode !== 'undefined') ? generateBarcode(svg, item, idxGlobal) : false;
+            if (!ok){
+              // إذا فشل الـ SVG نعرض نصًا بديلًا للـ barcode
+              svg.remove();
+              const fallback = document.createElement('div');
+              fallback.className = 'barcode-fallback';
+              fallback.textContent = (item.barcode && String(item.barcode).trim()) || (item.scale && String(item.scale)) || ('#' + String(idxGlobal + 1));
+              div.querySelector('.barcode').appendChild(fallback);
+            }
+          });
+        }
+
+      });
+
     })();
   </script>
+
+  <!-- تعليمات اختبار سريعة (يمكن لصقها بالكونسول قبل فتح الصفحة):
+    localStorage.setItem('print_items_v2', JSON.stringify({
+      templateNumber: 1,
+      generatedAt: Date.now(),
+      items: [
+        { name: 'منتج بطول اسم قصير', price: '15.00', barcode: '6224008603764' },
+        { name: 'منتج طويل جدًا جدًا جدًا لفرض التفاف السطر والتصغير التلقائي حتى يظهر بالكامل بدون قطع', price: '120.00', barcode: '6221024992513' }
+        // ... أضف حتى 21 عنصرًا أو أكثر
+      ]
+    }));
+  -->
+
 </body>
 </html>
