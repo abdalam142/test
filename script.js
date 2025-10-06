@@ -1,11 +1,5 @@
-/* script.js — نسخة مُعاد بناؤها (محدثة)
-   - يحتفظ بكل وظائف الصفحة: تحميل الإكسل (pattern product.template(XXX).xlsx),
-     البحث، مودال الاستلام، المسح بالكاميرا، حفظ محلي، تصدير Excel.
-   - وظيفة "تصدير PDF" تم تعديلها: الآن تحفظ بيانات الطباعة في localStorage
-     وتفتح print.html لعرض/طباعة المنتجات (3×7 = 21/صفحة).
-*/
+/* script.js — نسخة مُحدّثة مع زر إزالة ملف الإكسل من الذاكرة */
 
-/* ----------------------------- إعدادات ومتحولات ----------------------------- */
 const EXCEL_FILENAME_PATTERN = /^product\.template\((\d+)\)\.xlsx$/i;
 const STORAGE_KEY_EXCEL = 'excel_rows_v2';
 const STORAGE_KEY_FINAL = 'final_selection_v2';
@@ -28,6 +22,8 @@ const clearBtn = document.getElementById('clearBtn');
 const uploadBtn = document.getElementById('uploadBtn');
 const fileInput = document.getElementById('fileInput');
 const excelFileInput = document.getElementById('excelFile');
+
+const removeExcelBtn = document.getElementById('removeExcelBtn'); // <-- الزر اللي لازم تضيفه في HTML
 
 const cameraBtn = document.getElementById('cameraBtn');
 const scaleBtn = document.getElementById('scaleBtn');
@@ -87,7 +83,7 @@ function createToastElement(type, text) {
 function showToast(type, text, timeout = 4000) {
   try {
     const el = createToastElement(type, text);
-    messagesPanel.appendChild(el);
+    messagesPanel && messagesPanel.appendChild(el);
     if (timeout) setTimeout(() => { try { el.remove(); } catch (e) {} }, timeout);
   } catch (e) { console[type === 'error' ? 'error' : 'log'](text); }
 }
@@ -140,7 +136,7 @@ async function tryAutoLoadTemplate() {
   } catch (e) {}
 
   setStatus('لم يتم العثور على ملف الإكسل product.template(XXX).xlsx — ارفع الملف يدوياً', false);
-  templateBadge.style.display = 'none';
+  templateBadge && (templateBadge.style.display = 'none');
 }
 
 /* ----------------------------- قراءة الإكسل (parsing) ----------------------------- */
@@ -167,8 +163,8 @@ async function parseWorkbook(arrayBuffer, sourceName) {
       const m = EXCEL_FILENAME_PATTERN.exec(sourceName.split('/').pop());
       if (m) {
         templateNumber = m[1];
-        templateNumberEl.textContent = templateNumber;
-        templateBadge.style.display = '';
+        templateNumberEl && (templateNumberEl.textContent = templateNumber);
+        templateBadge && (templateBadge.style.display = '');
       }
     }
 
@@ -707,6 +703,53 @@ function updatePersistentNotice() {
 }
 dismissPersistent && dismissPersistent.addEventListener('click', () => { persistentNotice.style.display = 'none'; });
 
+/* ----------------------------- NEW: Clear loaded Excel from memory (and optional finals) ----------------------------- */
+function clearLoadedExcel({ clearFinals = false } = {}) {
+  try {
+    // مسح بيانات الإكسل من الذاكرة
+    excelData = [];
+    headerRow = null;
+    startIndex = 0;
+    templateNumber = null;
+
+    // تحديث الواجهة
+    if (templateNumberEl) templateNumberEl.textContent = '';
+    if (templateBadge) templateBadge.style.display = 'none';
+    renderResultsEmpty();
+
+    // ازالة snapshot من localStorage (النسخة المحفوظة من الإكسل)
+    try { localStorage.removeItem(STORAGE_KEY_EXCEL); } catch (e) {}
+
+    // تصفير حقول الإدخال
+    try { if (fileInput) fileInput.value = ''; } catch(e) {}
+    try { if (excelFileInput) excelFileInput.value = ''; } catch(e) {}
+
+    setStatus('لم يتم تحميل ملف الإكسل', false);
+    showToast('success', 'تمت إزالة ملف الإكسل من الذاكرة.');
+
+    // خيار مسح الاختيارات النهائية إذا طلب المستخدم ذلك
+    if (clearFinals) {
+      finalMap.clear();
+      saveFinalToStorage();
+      renderFinals();
+      showToast('info', 'تمت إزالة المنتجات المختارة كذلك.');
+    }
+  } catch (err) {
+    console.error('clearLoadedExcel', err);
+    showToast('error', 'حدث خطأ أثناء إزالة ملف الإكسل.');
+  }
+}
+
+// زر الإزالة: يطلب تأكيد ثم ينفّذ
+if (removeExcelBtn) {
+  removeExcelBtn.addEventListener('click', () => {
+    const ok = confirm('هل تريد إزالة ملف الإكسل المحمّل من الذاكرة؟');
+    if (!ok) return;
+    const also = confirm('هل تريد أيضاً إزالة المنتجات المختارة (القائمة النهائية)؟\nموافق = احذف الاختيارات أيضاً، إلغاء = احتفظ بالاختيارات.');
+    clearLoadedExcel({ clearFinals: !!also });
+  });
+}
+
 /* ----------------------------- NEW: Prepare print data & open print.html ----------------------------- */
 /*
   عند الضغط على زر "تصدير PDF" (الآن يعيد توجيه للطباعة)، نقوم بالآتي:
@@ -756,9 +799,6 @@ exportPdfBtn && exportPdfBtn.addEventListener('click', () => {
     showToast('error', 'حدث خطأ أثناء تجهيز الطباعة.');
   }
 });
-
-/* ----------------------------- Scanner, admin, other bindings (already done above) ----------------------------- */
-/* (باقي الكود مثلما هو — تم تضمينه في الأعلى) */
 
 /* ----------------------------- Startup ----------------------------- */
 window.__app_debug = { finalMap, excelData, findRowByValue, openReceiveModal };
