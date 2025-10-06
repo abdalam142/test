@@ -1,14 +1,19 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>صفحة طباعة المنتجات</title>
+
+  <!-- JsBarcode -->
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+
   <style>
     @page {
       size: A4 portrait;
       margin: 10mm;
     }
+
     body {
       font-family: "Tahoma", "Arial", sans-serif;
       direction: rtl;
@@ -17,20 +22,24 @@
       padding: 0;
       color: #000;
     }
+
     header {
       text-align: center;
       padding: 10px;
       border-bottom: 1px solid #ccc;
       margin-bottom: 10px;
     }
+
     header h1 {
-      font-size: 30px;
+      font-size: 20px;
       margin: 0;
     }
+
     .controls {
       text-align: center;
       margin-bottom: 12px;
     }
+
     .controls button {
       background: #2c7be5;
       color: #fff;
@@ -41,53 +50,91 @@
       cursor: pointer;
       font-size: 14px;
     }
+
     .controls button:hover {
       background: #1a5ac9;
     }
+
+    /* شبكة العناصر: 3 أعمدة */
     .grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 8px;
-      margin: 1 auto;
+      margin: 0 auto 10px auto;
       width: 95%;
       page-break-inside: avoid;
     }
+
     .item {
       border: 1px solid #ccc;
       border-radius: 8px;
-      padding: 6px;
+      padding: 8px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: flex-start;
-      height: 120px;
       box-sizing: border-box;
+      /* ارتفاع كافٍ لاستيعاب الاسم الأكبر والسعر والباركود */
+      height: 140px;
       page-break-inside: avoid;
+      background: #fff;
     }
+
+    /* اسم المنتج — مكبّر (1.5× من 12px => 18px) */
     .item h3 {
-      font-size: 15px;
-      margin: 8px 0 0px 0;
+      font-size: 18px;
+      font-weight: 600;
+      margin: 0;
       text-align: center;
-      line-height: 1;
-      height: 28px;
+      line-height: 1.15;
+      /* حد أقصى لارتفاع الاسم (سطرين تقريبًا) */
+      max-height: 42px;
       overflow: hidden;
+      width: 100%;
     }
+
+    /* السعر — واضح وبارز */
     .item .price {
-      font-size: 11px;
-      color: #333;
-      margin-bottom: 0px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #111;
+      margin-top: 6px;
+      margin-bottom: 6px;
+      width: 100%;
+      text-align: center;
     }
-    .item svg {
-      width: 90%;
-      height: 40px;
+
+    /* حاوية الباركود في الأسفل (تُدفع للأسفل باستخدام margin-top: auto) */
+    .barcode-wrapper {
       margin-top: auto;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
+
+    /* SVG الباركود — طول 60px (1.5× من 40px) */
+    .barcode-wrapper svg {
+      width: 90%;
+      height: 60px;
+      display: block;
+    }
+
+    /* نص بديل للباركود إن لم ينشأ */
+    .barcode-text {
+      font-size: 12px;
+      color: #666;
+      text-align: center;
+      width: 100%;
+      word-break: break-all;
+    }
+
     footer {
       text-align: center;
       font-size: 11px;
       color: #666;
       margin: 10px 0;
     }
+
     @media print {
       .controls, header, footer {
         display: none !important;
@@ -97,6 +144,10 @@
       }
       .grid {
         page-break-after: always;
+      }
+      .item {
+        /* لمنع اقتطاع العنصر بين الصفحات */
+        page-break-inside: avoid;
       }
     }
   </style>
@@ -119,64 +170,94 @@
   </footer>
 
   <script>
-    (function() {
+    (function () {
       const container = document.getElementById('container');
       const infoEl = document.getElementById('templateInfo');
       const footerText = document.getElementById('footerText');
       const STORAGE_KEY = 'print_items_v2';
+
+      // قراءة البيانات من localStorage
       const payloadRaw = localStorage.getItem(STORAGE_KEY);
       if (!payloadRaw) {
-        container.innerHTML = '<p style="text-align:center;color:red">لم يتم العثور على بيانات للطباعة.</p>';
+        container.innerHTML = '<p style="text-align:center;color:red;padding:18px">لم يتم العثور على بيانات للطباعة. تأكد من أن المفتاح <code>print_items_v2</code> موجود في localStorage ويحتوي JSON صالح.</p>';
         return;
       }
 
       let payload = {};
-      try { payload = JSON.parse(payloadRaw); } catch (e) {
-        container.innerHTML = '<p style="text-align:center;color:red">فشل قراءة بيانات الطباعة.</p>';
+      try {
+        payload = JSON.parse(payloadRaw);
+      } catch (e) {
+        container.innerHTML = '<p style="text-align:center;color:red;padding:18px">فشل قراءة بيانات الطباعة (JSON غير صالح).</p>';
         return;
       }
-      const { templateNumber, items, generatedAt } = payload;
 
-      infoEl.textContent = `القالب رقم: ${templateNumber || 'غير معروف'} — عدد المنتجات: ${items.length}`;
+      const { templateNumber, items = [], generatedAt } = payload;
+      infoEl.textContent = `القالب رقم: ${templateNumber || 'غير معروف'} — عدد المنتجات: ${items.length || 0}`;
       footerText.textContent = `تم إنشاء الصفحة في: ${new Date(generatedAt || Date.now()).toLocaleString('ar-EG')}`;
 
       if (!Array.isArray(items) || items.length === 0) {
-        container.innerHTML = '<p style="text-align:center">لا توجد منتجات للطباعة.</p>';
+        container.innerHTML = '<p style="text-align:center;padding:18px">لا توجد منتجات للطباعة.</p>';
         return;
       }
 
-      // إنشاء الصفحات (كل صفحة تحتوي 21 عنصر)
+      // حجم الصفحة: كل صفحة تحتوي 21 عنصر (3 أعمدة × 7 صفوف)
       const chunkSize = 21;
+
       for (let i = 0; i < items.length; i += chunkSize) {
         const chunk = items.slice(i, i + chunkSize);
         const grid = document.createElement('div');
         grid.className = 'grid';
+
         chunk.forEach(item => {
           const div = document.createElement('div');
           div.className = 'item';
+
+          // الاسم
           const nameEl = document.createElement('h3');
-          nameEl.textContent = item.name || '';
+          nameEl.textContent = item.name || '-';
           div.appendChild(nameEl);
 
+          // السعر
           const priceEl = document.createElement('div');
           priceEl.className = 'price';
-          priceEl.textContent = `السعر: ${item.price || '-'}`;
+          priceEl.textContent = item.price !== undefined && item.price !== null && item.price !== ''
+            ? `السعر: ${item.price}`
+            : 'السعر: -';
           div.appendChild(priceEl);
 
+          // باركود في الأسفل
+          const barcodeWrapper = document.createElement('div');
+          barcodeWrapper.className = 'barcode-wrapper';
+
+          // إنشاء SVG للباركود
           const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-          try {
-            const code = (item.barcode || item.scale || item.name || '').toString();
-            JsBarcode(svg, code, { format: "CODE128", displayValue: false, height: 20, width: 1, margin: 0 });
-          } catch(e) {
+
+          // تحديد الكود الذي سينشأ منه الباركود
+          const code = String(item.barcode || item.scale || item.code || item.sku || item.name || '').trim();
+
+          if (code) {
+            try {
+              // إعدادات الباركود — ارتفاع 60px (1.5×)
+              JsBarcode(svg, code, { format: "CODE128", displayValue: false, height: 60, width: 1.2, margin: 0 });
+              barcodeWrapper.appendChild(svg);
+            } catch (e) {
+              // فشل توليد الباركود — نعرض النص كبديل
+              const fallback = document.createElement('div');
+              fallback.className = 'barcode-text';
+              fallback.textContent = code;
+              barcodeWrapper.appendChild(fallback);
+            }
+          } else {
             const fallback = document.createElement('div');
-            fallback.textContent = '—';
-            fallback.style.fontSize = '10px';
-            fallback.style.color = '#888';
-            div.appendChild(fallback);
+            fallback.className = 'barcode-text';
+            fallback.textContent = '-';
+            barcodeWrapper.appendChild(fallback);
           }
-          div.appendChild(svg);
+
+          div.appendChild(barcodeWrapper);
           grid.appendChild(div);
         });
+
         container.appendChild(grid);
       }
     })();
