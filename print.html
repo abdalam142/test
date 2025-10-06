@@ -3,31 +3,34 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>صفحة طباعة المنتجات — إصلاح المسافات</title>
+  <title>صفحة طباعة المنتجات — مصحح</title>
 
   <!-- JsBarcode CDN -->
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 
   <style>
+    /* صفحة A4 و margins */
     @page { size: A4 portrait; margin: 10mm; }
 
     :root{
+      --safety-mm: 2mm;        /* هامش أمان لتجنب القص على الحواف */
       --grid-gap: 3mm;
       --barcode-mm: 9mm;
-      --price-mm: 6mm;
+      --price-mm: 3.2mm;      /* حجم خط السعر مضبوط بالملم */
+      --price-box-mm: 6mm;    /* ارتفاع صندوق السعر (مساحة فعلية) */
       --item-padding-mm: 2mm;
       --header-mm: 12mm;
       --footer-mm: 8mm;
     }
 
-    *{ box-sizing: border-box; }
-    html,body{ height:100%; margin:0; padding:0; font-family: Tahoma, Arial, sans-serif; direction: rtl; }
+    * { box-sizing: border-box; }
+    html,body { height:100%; margin:0; padding:0; font-family: Tahoma, Arial, sans-serif; direction: rtl; background:#fff; }
 
     header{
       height: var(--header-mm);
       padding: 1mm 6mm;
       text-align:center;
-      border-bottom: 1px solid rgb(38, 0, 253);
+      border-bottom:1px solid #c11;
       display:flex; align-items:center; justify-content:center; flex-direction:column;
     }
     header h1{ margin:0; font-size:14px; }
@@ -38,20 +41,20 @@
 
     main{ width:100%; }
 
-    .page{ page-break-after: always; display:block; width: calc(100% - 20mm); margin: 0 auto 6mm; }
-    .grid{
-      display:grid;
-      justify-content:center;
-      align-content:start;
-      gap: var(--grid-gap);
-      margin:0 auto;
-    }
+    /* container page: سنتأكد من ضبط العرض على printableWidth - safety */
+    .page { page-break-after: always; display:block; margin: 0 auto 6mm; }
 
-    /* كل خلية: الاسم في الأعلى (مساحة مرنة) — ثم صندوق سفلي ملتصق للأسفل يحتوى السعر والباركود بدون فراغ */
-    .item {
+    /* grid سيُنشأ ديناميكياً بأبعاد محسوبة بالـ JS (مع مراعاة safety) */
+    .grid{ display:grid; justify-content:center; align-content:start; gap: var(--grid-gap); margin:0 auto; }
+
+    /* خلية المنتج:
+       - الاسم في الأعلى (مساحة مرنة)
+       - bottom ملتصق للأسفل (price + barcode) باستخدام margin-top:auto
+       - height سيتم ضبطه inline كـ mm */
+    .item{
       border:1px solid #111;
       padding: calc(var(--item-padding-mm));
-      background: #fff;
+      background:#fff;
       display:flex;
       flex-direction:column;
       align-items:stretch;
@@ -59,18 +62,18 @@
       text-align:center;
     }
 
-    .name {
+    .name{
       margin:0;
-      font-size:14px; /* سيتم تعديلها ديناميكياً */
+      font-size:14px;
       line-height:1.05;
       word-break:break-word;
       overflow:hidden;
       padding: 0 2mm;
+      /* max-height سيحدد عبر JS بعد حساب الارتفاع */
     }
 
-    /* الحاوية السفلية ملتصقة لأسفل العنصر */
-    .bottom {
-      margin-top: auto; /* الأهم: يجبر السعر والباركود على الالتصاق بأسفل الخلية */
+    .bottom{
+      margin-top:auto; /* الأهم: يلصق الصندوق السفلي بأسفل الخلية */
       display:flex;
       flex-direction:column;
       gap:0;
@@ -78,18 +81,18 @@
       justify-content:flex-end;
     }
 
-    .price {
-      font-size:11px;
-      color:#222;
-      height: var(--price-mm);
+    .price{
+      font-size: var(--price-mm); /* حجم ثابت بالـ mm */
+      color:#111;
+      height: var(--price-box-mm);
       display:flex;
       align-items:center;
       justify-content:center;
-      padding: 0 2mm;
+      padding:0 2mm;
       margin:0;
     }
 
-    .barcode {
+    .barcode{
       height: var(--barcode-mm);
       width:100%;
       display:flex;
@@ -113,10 +116,14 @@
       box-sizing:border-box;
     }
 
-    @media print{
+    /* لا تطبع أزرار التحكم */
+    @media print {
       .controls { display:none !important; }
       body { margin:0; }
     }
+
+    /* تجنب صفحة فارغة أخيرة: نجعل آخر صفحة لا تولّد always page-break */
+    .page:last-child { page-break-after: auto; }
   </style>
 </head>
 <body>
@@ -136,41 +143,43 @@
 
   <script>
     (function(){
-      // قياسات A4 ثابتة بالملم
+      /* ثوابت A4 (mm) */
       const A4_W = 210, A4_H = 297;
-      const MARGIN = 10; // مطابق @page
-      const HEADER_MM = 12, FOOTER_MM = 8;
-      const GAP = 3;
+      const MARGIN = 10; // نفس @page margin
+      const HEADER_MM = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-mm')) || 12;
+      const FOOTER_MM = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--footer-mm')) || 8;
+      const GAP = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--grid-gap')) || 3;
       const ROWS = 7, COLS = 3;
+
+      // safety margin (منع القص)
+      const SAFETY_MM = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--safety-mm')) || 2;
+
+      // barcode/price sizes (من الـ CSS root)
       const BARCODE_MM = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--barcode-mm')) || 9;
-      const PRICE_MM = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--price-mm')) || 6;
+      const PRICE_BOX_MM = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--price-box-mm')) || 6;
       const ITEM_PADDING_MM = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--item-padding-mm')) || 2;
 
+      // px per mm
       const PX_PER_MM = 96 / 25.4;
       function mmToPx(mm){ return Math.round(mm * PX_PER_MM); }
 
-      // حساب الطول المتاح لكل عنصر
+      // حسابات الأبعاد الآمنة (نطرح safety من printable width)
+      const printableWidthMM = A4_W - 2 * MARGIN - SAFETY_MM;
       const printableHeightMM = A4_H - 2 * MARGIN - HEADER_MM - FOOTER_MM;
-      const totalGapsVertMM = (ROWS - 1) * GAP;
-      const itemHeightMM = (printableHeightMM - totalGapsVertMM) / ROWS;
-      const printableWidthMM = A4_W - 2 * MARGIN;
-      const totalGapsHorzMM = (COLS - 1) * GAP;
-      const colWidthMM = (printableWidthMM - totalGapsHorzMM) / COLS;
+      const totalGapsV = (ROWS - 1) * GAP;
+      const itemHeightMM = (printableHeightMM - totalGapsV) / ROWS;
+      const totalGapsH = (COLS - 1) * GAP;
+      const colWidthMM = (printableWidthMM - totalGapsH) / COLS;
 
-      // نفعل المتغيرات في :root لو احتجنا عرضها
-      const root = document.documentElement;
-      root.style.setProperty('--grid-gap', GAP + 'mm');
-      root.style.setProperty('--barcode-mm', BARCODE_MM + 'mm');
-      root.style.setProperty('--price-mm', PRICE_MM + 'mm');
-
-      const STORAGE_KEY = 'print_items_v2';
+      // وضع قياسات دقيقة إلى CSS أو استخدام inline عند إنشاء العناصر
       const container = document.getElementById('container');
       const infoEl = document.getElementById('templateInfo');
       const footerEl = document.getElementById('footerText');
+      const STORAGE_KEY = 'print_items_v2';
 
-      function safeParse(json){ try{ return JSON.parse(json); } catch(e){ return null; } }
+      function safeParse(j){ try{ return JSON.parse(j); } catch(e){ return null; } }
 
-      // تحميل مكتبة JsBarcode عند الحاجة
+      // تأكد من JsBarcode
       function ensureJsBarcode(){
         return new Promise((resolve,reject)=>{
           if (typeof JsBarcode !== 'undefined') return resolve();
@@ -182,30 +191,22 @@
         });
       }
 
-      // تقليل الخط حتى يتناسب الاسم مع المساحة المسموح بها
+      // reduce text to fit available height (px)
       function fitTextToElement(el, maxHeightPx, { maxSizePx = 16, minSizePx = 7, step = 0.5 } = {}){
         if (!el) return;
-        let size = maxSizePx;
-        el.style.fontSize = size + 'px';
+        el.style.fontSize = maxSizePx + 'px';
         el.style.lineHeight = '1.05';
         el.style.whiteSpace = 'normal';
-        el.style.overflow = 'hidden';
-        el.style.display = 'block';
-        // safety
+        let size = maxSizePx;
         let safety = 200;
         while ((el.scrollHeight > maxHeightPx || el.clientHeight > maxHeightPx) && size > minSizePx && safety-- > 0){
           size = Math.max(minSizePx, +(size - step).toFixed(2));
           el.style.fontSize = size + 'px';
         }
-        // إذا رغم التصغير ظل يفيض، نترك القطع (overflow hidden) — لكن السعر سيبقى ملاصقاً للباركود
       }
 
-      // دوال باركود fallback
-      function hashCode(s){
-        let h = 0;
-        for (let i=0;i<s.length;i++){ h = ((h<<5)-h) + s.charCodeAt(i); h |= 0; }
-        return Math.abs(h);
-      }
+      function hashCode(s){ let h=0; for(let i=0;i<s.length;i++){ h=((h<<5)-h)+s.charCodeAt(i); h|=0;} return Math.abs(h); }
+
       function tryGenerateBarcode(svgEl, item, fallbackIndex){
         if (!svgEl || typeof JsBarcode === 'undefined') return false;
         const candidates = [];
@@ -215,18 +216,15 @@
         if (item && item.id) candidates.push(String(item.id));
         for (const c of candidates){
           if (!c) continue;
-          try{
-            JsBarcode(svgEl, c, { format:'CODE128', displayValue:false, height: mmToPx(BARCODE_MM), width:1.0, margin:0 });
-            return true;
-          }catch(e){}
+          try{ JsBarcode(svgEl, c, { format:'CODE128', displayValue:false, height: mmToPx(BARCODE_MM), width:1.0, margin:0 }); return true; }catch(e){}
         }
         for (const c of candidates){
-          const digits = String(c).replace(/\D/g,'');
-          if (digits.length >= 6){
-            try{ JsBarcode(svgEl, digits, { format:'CODE128', displayValue:false, height:mmToPx(BARCODE_MM), width:1.0, margin:0 }); return true; }catch(e){}
+          const d = String(c).replace(/\D/g,'');
+          if (d.length >= 6){
+            try{ JsBarcode(svgEl, d, { format:'CODE128', displayValue:false, height:mmToPx(BARCODE_MM), width:1.0, margin:0 }); return true; }catch(e){}
           }
         }
-        const fallback = 'P' + String(hashCode(item && item.name ? item.name : String(fallbackIndex))).padStart(12,'0').slice(-12);
+        const fallback = 'P' + String(hashCode((item && item.name) ? item.name : String(fallbackIndex))).padStart(12,'0').slice(-12);
         try{ JsBarcode(svgEl, fallback, { format:'CODE128', displayValue:false, height:mmToPx(BARCODE_MM), width:1.0, margin:0 }); return true; }catch(e){}
         return false;
       }
@@ -251,18 +249,23 @@
       infoEl.textContent = `القالب رقم: ${payload.templateNumber || 'غير معروف'} — عدد المنتجات: ${items.length}`;
       footerEl.textContent = `تم الإنشاء: ${new Date(payload.generatedAt || Date.now()).toLocaleString('ar-EG')}`;
 
-      // إنشاء الصفحات وجداول 3x7
+      // بناء الصفحات
       ensureJsBarcode().catch(err => console.warn(err && err.message ? err.message : err)).finally(()=>{
-        const CHUNK = ROWS * COLS;
+        const CHUNK = ROWS * COLS; // 21
         const pages = Math.ceil(items.length / CHUNK);
 
         for (let p=0; p<pages; p++){
           const chunk = items.slice(p*CHUNK, p*CHUNK + CHUNK);
           const pageEl = document.createElement('section');
           pageEl.className = 'page';
+          // امنح الصفحة عرضًا ثابتًا وآمنًا ونركّزه
+          pageEl.style.width = (printableWidthMM) + 'mm';
+          pageEl.style.marginLeft = 'auto';
+          pageEl.style.marginRight = 'auto';
 
           const grid = document.createElement('div');
           grid.className = 'grid';
+          // ضبط الأعمدة والصفوف بالملم بدقة (مع مراعاة safety)
           grid.style.gridTemplateColumns = `repeat(${COLS}, ${colWidthMM.toFixed(4)}mm)`;
           grid.style.gridTemplateRows = `repeat(${ROWS}, ${itemHeightMM.toFixed(4)}mm)`;
           grid.style.gap = GAP + 'mm';
@@ -280,7 +283,6 @@
               const nameEl = document.createElement('h3');
               nameEl.className = 'name';
               nameEl.textContent = item.name || '-';
-              // لا نحدد الارتفاع للاسم هنا — سنحسب الحد الأقصى ديناميكياً قبل fit
               cell.appendChild(nameEl);
 
               const bottom = document.createElement('div');
@@ -288,6 +290,7 @@
 
               const priceEl = document.createElement('div');
               priceEl.className = 'price';
+              // حجم الخط مضمون عبر CSS var --price-mm (mm)
               priceEl.textContent = `السعر: ${item.price || '-'}`;
               bottom.appendChild(priceEl);
 
@@ -299,7 +302,7 @@
 
               cell.appendChild(bottom);
             } else {
-              // خلية فارغة
+              // خلية فارغة للحفاظ على الشكل
               const empty = document.createElement('div');
               empty.style.width = '100%';
               empty.style.height = '100%';
@@ -314,28 +317,24 @@
           container.appendChild(pageEl);
         }
 
-        // بعد الإضافة للـ DOM نقوم بعملية إعادة قياس وتعديل حجم الخط وتوليد الباركود
-        requestAnimationFrame(() => {
+        // بعد الإدراج: ضبط النصوص وتوليد الباركود
+        requestAnimationFrame(()=>{
           const allCells = container.querySelectorAll('.page .grid .item');
           allCells.forEach((cell, idx) => {
-            const actualIdx = idx; // لأن خلايانا مرتبة تتابعياً عبر الصفحات
+            const actualIdx = idx; // كل خلية بالترتيب
             const item = items[actualIdx];
             const nameEl = cell.querySelector('.name');
-            const priceEl = cell.querySelector('.price');
             const svg = cell.querySelector('svg');
 
             if (nameEl){
-              // نحسب المساحة المتاحة للاسم: ارتفاع العنصر - (ارتفاع السعر + ارتفاع الباركود) - 2*padding - safety
+              // حساب المساحة المتاحة للاسم (px)
               const itemHpx = mmToPx(itemHeightMM);
-              const priceHpx = mmToPx(PRICE_MM);
+              const priceHpx = mmToPx(PRICE_BOX_MM);
               const barcodeHpx = mmToPx(BARCODE_MM);
               const padPx = mmToPx(ITEM_PADDING_MM);
-              const safetyPx = Math.round(mmToPx(0.5)); // نصف ملم كفاصل أمان
-              const maxNameHpx = Math.max(8, itemHpx - priceHpx - barcodeHpx - (2 * padPx) - safetyPx);
-
-              // طبق limit وقلل الخط حتى يتناسب
+              const safetyPx = mmToPx(0.5);
+              const maxNameHpx = Math.max(8, itemHpx - priceHpx - barcodeHpx - (2*padPx) - safetyPx);
               fitTextToElement(nameEl, maxNameHpx, { maxSizePx:16, minSizePx:7, step:0.5 });
-              // تأكد من أن عنصر الاسم لا يتجاوز المساحة بالفعل
               nameEl.style.maxHeight = maxNameHpx + 'px';
               nameEl.style.overflow = 'hidden';
             }
@@ -362,13 +361,13 @@
     })();
   </script>
 
-  <!-- تعليمات اختبار: الصق في Console قبل فتح الملف -->
   <!--
+    اختبار سريع (Console):
     localStorage.setItem('print_items_v2', JSON.stringify({
       templateNumber: 1,
       generatedAt: Date.now(),
-      items: Array.from({length: 21}, (_,i) => ({
-        name: i%2===0 ? 'اسم منتج '+(i+1) : 'اسم منتج طويل جدًا لاختبار التفاف الأسطر والتصغير التلقائي حتى لا يسبب فراغ بين السعر والباركود '+(i+1),
+      items: Array.from({length: 22}, (_,i) => ({
+        name: i%2===0 ? 'منتج '+(i+1) : 'اسم طويل جدا لاختبار الالتفاف والتصغير التلقائي '+(i+1),
         price: (Math.random()*200).toFixed(2),
         barcode: String(6224008603764 + i)
       }))
@@ -377,3 +376,4 @@
 
 </body>
 </html>
+
