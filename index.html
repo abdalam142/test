@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>نظام عرض المنتجات — ثابت 3×7</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Tajawal', sans-serif; background: #0f1724; color: #e6eef8; }
+    .print-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .card { background: #ffffff; color: #0b1220; border-radius: 6px; padding: 8px; box-sizing: border-box;
+            display: flex; flex-direction: column; justify-content: space-between; align-items: center;
+            width: 100%; height: 36mm; overflow: hidden; }
+    .card .title { font-weight: 700; font-size: 14px; text-align: center; line-height: 1.1; max-height: 2.4em; overflow: hidden; }
+    .card .price { font-size: 13px; }
+    .qr-holder { width: 64px; height: 64px; display:flex; align-items:center; justify-content:center; }
+    @media print {
+      body { background: white; color: black; }
+      header, footer, .controls, #scannerArea { display: none !important; }
+      .print-modal { position: static; width: 100%; }
+      .card { page-break-inside: avoid; -webkit-print-color-adjust: exact; }
+    }
+    .muted { color: #9aa6b2; }
+    .table-scroll { max-height: 60vh; overflow: auto; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <div id="loading" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+    <div class="text-center">
+      <div class="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+      <p id="loadingText" class="text-gray-300">جاري تحميل البيانات...</p>
+    </div>
+  </div>
+
+  <header class="p-4 flex items-center justify-between border-b border-slate-800">
+    <h1 class="text-xl text-blue-400 font-semibold">نظام عرض المنتجات — طباعة 3×7 ثابتة</h1>
+    <div class="flex gap-2 items-center">
+      <button id="openScanner" class="bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded-md text-sm">📷 كاميرا</button>
+      <button id="toggleHideEmpty" class="bg-amber-600 hover:bg-amber-700 px-3 py-2 rounded-md text-sm">🧾 إخفاء الفارغ</button>
+      <button id="clearReceived" class="bg-red-600 hover:bg-red-700 px-3 py-2 rounded-md text-sm">🗑️ مسح المستلمة</button>
+    </div>
+  </header>
+
+  <main class="flex gap-4 p-4">
+    <section class="w-1/2 bg-slate-900 p-4 rounded-md">
+      <div class="flex gap-2 mb-4 items-center">
+        <input id="searchInput" class="flex-1 p-2 rounded-md bg-slate-800 border border-slate-700" placeholder="ابحث بالاسم أو الصق الباركود..." />
+        <button id="searchBtn" class="bg-blue-600 px-3 py-2 rounded-md">بحث</button>
+        <input id="fileInput" type="file" accept=".xlsx,.xls" class="hidden" />
+        <button id="needUpload" class="bg-yellow-600 px-3 py-2 rounded-md hidden">رفع ملف</button>
+      </div>
+      <div class="table-scroll">
+        <table class="w-full text-sm table-auto">
+          <thead class="text-slate-300 sticky top-0 bg-slate-900">
+            <tr><th class="p-2">اسم</th><th class="p-2">سعر</th><th class="p-2">الوصف</th><th class="p-2">باركود</th><th class="p-2">استلام</th></tr>
+          </thead>
+          <tbody id="productsTbody" class="text-slate-100"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="w-1/2 bg-slate-900 p-4 rounded-md">
+      <h2 class="text-lg mb-2">المنتجات المستلمة</h2>
+      <div class="table-scroll mb-4">
+        <table class="w-full text-sm table-auto">
+          <thead class="text-slate-300 bg-slate-900"><tr><th class="p-2">اسم</th><th class="p-2">سعر</th><th class="p-2">الباركود</th><th class="p-2">كمية</th><th class="p-2">تحكم</th></tr></thead>
+          <tbody id="receivedTbody" class="text-slate-100"></tbody>
+        </table>
+      </div>
+      <div class="flex justify-between items-center">
+        <div class="flex gap-2">
+          <button id="exportBtn" class="bg-green-600 px-3 py-2 rounded-md">💾 تصدير Excel</button>
+          <button id="previewBtn" class="bg-blue-600 px-3 py-2 rounded-md">🖨️ معاينة الطباعة</button>
+        </div>
+        <div class="muted text-sm">البيانات محفوظة محليًّا</div>
+      </div>
+    </section>
+  </main>
+
+  <div id="scannerArea" class="hidden fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-6">
+    <div class="bg-slate-900 rounded-md p-4 w-full max-w-3xl">
+      <div class="flex justify-between items-center mb-3">
+        <h3 class="text-lg">كاميرا المسح</h3>
+        <button id="closeScanner" class="bg-red-600 px-3 py-1 rounded-md">إغلاق</button>
+      </div>
+      <div id="videoContainer" class="w-full h-96 bg-black rounded-md overflow-hidden"></div>
+      <div class="text-sm muted mt-2">سيتم إيقاف الكاميرا تلقائيًا عند قراءة باركود مطابق.</div>
+    </div>
+  </div>
+
+  <div id="previewArea" class="hidden fixed inset-0 z-50 bg-black/80 p-6 overflow-auto">
+    <div class="max-w-[900px] mx-auto bg-slate-800 p-4 rounded-md print-modal">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl">معاينة الطباعة — 3 × 7 ثابتة</h2>
+        <div class="flex gap-2">
+          <button id="printNow" class="bg-green-600 px-3 py-2 rounded-md">طباعة</button>
+          <button id="closePreview" class="bg-red-600 px-3 py-2 rounded-md">إغلاق</button>
+        </div>
+      </div>
+      <div id="printGrid" class="print-grid"></div>
+      <div class="mt-4 text-sm muted">ملاحظة: الشبكة ثابتة 3 أعمدة × 7 صفوف. سيتم ملء الخلايا الفارغة عند الحاجة.</div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://unpkg.com/quagga@0.12.1/dist/quagga.min.js"></script>
+
+  <script>
+/* embedded script */
+(() => {
+  'use strict';
+  const loading = document.getElementById('loading');
+  const loadingText = document.getElementById('loadingText');
+  const productsTbody = document.getElementById('productsTbody');
+  const receivedTbody = document.getElementById('receivedTbody');
+  const searchInput = document.getElementById('searchInput');
+  const searchBtn = document.getElementById('searchBtn');
+  const openScanner = document.getElementById('openScanner');
+  const closeScanner = document.getElementById('closeScanner');
+  const scannerArea = document.getElementById('scannerArea');
+  const videoContainer = document.getElementById('videoContainer');
+  const previewArea = document.getElementById('previewArea');
+  const previewBtn = document.getElementById('previewBtn');
+  const closePreview = document.getElementById('closePreview');
+  const printGrid = document.getElementById('printGrid');
+  const printNow = document.getElementById('printNow');
+  const exportBtn = document.getElementById('exportBtn');
+  const toggleHideEmpty = document.getElementById('toggleHideEmpty');
+  const clearReceived = document.getElementById('clearReceived');
+  const fileInput = document.getElementById('fileInput');
+  const needUpload = document.getElementById('needUpload');
+
+  const STORAGE_KEY = 'selected_products_v1';
+  let products = [];
+  let hideEmpty = false;
+  let scanning = false;
+  let stream = null;
+  let detector = null;
+
+  function showLoading(msg='جاري تحميل البيانات...') { loading.style.display='flex'; loadingText.textContent=msg; }
+  function hideLoading(){ loading.style.display='none'; }
+
+  function escapeHtml(s){ if(s===null||s===undefined) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function loadSelected(){ try{ return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }catch(e){ return []; } }
+  function saveSelected(arr){ localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); }
+
+  function renderProducts(filter='') {
+    productsTbody.innerHTML='';
+    const q = String(filter||'').trim();
+    products.forEach(p => {
+      if(hideEmpty && !p.desc) return;
+      if(q) {
+        const nm = String(p.name||'').toLowerCase();
+        const bar = String(p.barcode||'');
+        if(!(nm.includes(q.toLowerCase()) || bar === q)) return;
+      }
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="p-2 border border-slate-700">${escapeHtml(p.name)}</td>
+        <td class="p-2 border border-slate-700">${escapeHtml(p.price)}</td>
+        <td class="p-2 border border-slate-700">${escapeHtml(p.desc)}</td>
+        <td class="p-2 border border-slate-700">${escapeHtml(p.barcode)}</td>
+        <td class="p-2 border border-slate-700"><button class="receiveBtn bg-emerald-600 px-2 py-1 rounded-md" data-id="${p.id}">استلام</button></td>
+      `;
+      productsTbody.appendChild(tr);
+    });
+    document.querySelectorAll('.receiveBtn').forEach(btn => btn.addEventListener('click', ()=> {
+      const id = Number(btn.dataset.id); promptReceive(id);
+    }));
+    if(q) {
+      const found = products.find(x => x.barcode === q);
+      if(found) promptReceive(found.id);
+    }
+  }
+
+  function renderReceived() {
+    receivedTbody.innerHTML='';
+    const arr = loadSelected();
+    arr.forEach((it, idx) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="p-2 border border-slate-700">${escapeHtml(it.name)}</td>
+        <td class="p-2 border border-slate-700">${escapeHtml(it.price)}</td>
+        <td class="p-2 border border-slate-700">${escapeHtml(it.barcode)}</td>
+        <td class="p-2 border border-slate-700">${escapeHtml(it.qty)}</td>
+        <td class="p-2 border border-slate-700"><button class="delRec bg-red-600 px-2 py-1 rounded-md" data-idx="${idx}">حذف</button></td>
+      `;
+      receivedTbody.appendChild(tr);
+    });
+    document.querySelectorAll('.delRec').forEach(b => b.addEventListener('click', ()=> { removeReceived(Number(b.dataset.idx)); }));
+  }
+
+  function addToReceived(prod, qty) {
+    if(!prod) return;
+    const n = Number(qty); if(Number.isNaN(n) || n<=0) return alert('ادخل كمية صحيحة أكبر من صفر');
+    const arr = loadSelected();
+    const ex = arr.find(x=>x.barcode === prod.barcode);
+    if(ex) ex.qty = (Number(ex.qty)||0) + n; else arr.push({ name: prod.name, price: prod.price, barcode: prod.barcode, qty: n });
+    saveSelected(arr); renderReceived();
+  }
+
+  function promptReceive(id) {
+    const p = products.find(x=>x.id === id);
+    if(!p) return alert('المنتج غير موجود');
+    const qty = prompt('ادخل عدد المنتج المستلم:\n' + p.name, '1');
+    if(qty === null) return;
+    addToReceived(p, qty);
+  }
+
+  function removeReceived(i) { const arr = loadSelected(); arr.splice(i,1); saveSelected(arr); renderReceived(); }
+
+  exportBtn.addEventListener('click', ()=> {
+    const arr = loadSelected(); if(!arr.length) return alert('لا توجد منتجات للتصدير');
+    const ws = XLSX.utils.json_to_sheet(arr);
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'received');
+    const wbout = XLSX.write(wb, { bookType:'xlsx', type:'array' });
+    const blob = new Blob([wbout], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'received_products.xlsx'; a.click(); URL.revokeObjectURL(url);
+  });
+
+  previewBtn.addEventListener('click', ()=> {
+    const arr = loadSelected(); if(!arr.length) return alert('لا توجد منتجات للمعاينة');
+    openPreview(arr);
+  });
+  closePreview.addEventListener('click', ()=> previewArea.classList.add('hidden'));
+  printNow.addEventListener('click', ()=> window.print());
+
+  function openPreview(arr) {
+    printGrid.innerHTML = '';
+    const slots = 21;
+    for(let i=0;i<slots;i++) {
+      const card = document.createElement('div'); card.className = 'card';
+      if(i < arr.length) {
+        const it = arr[i];
+        card.innerHTML = `
+          <div class="title">${escapeHtml(it.name)}</div>
+          <div class="price">سعر: ${escapeHtml(it.price)}</div>
+          <div class="qr-holder" data-value="${escapeHtml(it.barcode)}"></div>
+          <div class="muted text-xs">${escapeHtml(it.barcode)}</div>
+        `;
+      } else {
+        card.innerHTML = `<div style="height:100%;width:100%;"></div>`;
+      }
+      printGrid.appendChild(card);
+    }
+    setTimeout(()=>{
+      document.querySelectorAll('.qr-holder').forEach(holder => {
+        const v = holder.dataset.value;
+        if(!v) return;
+        holder.innerHTML = '';
+        try {
+          new QRCode(holder, { text: v, width: 64, height: 64, correctLevel: QRCode.CorrectLevel.L });
+        } catch(e) {
+          holder.textContent = v;
+        }
+      });
+    }, 100);
+    previewArea.classList.remove('hidden');
+    previewArea.scrollTop = 0;
+  }
+
+  async function startScanner() {
+    if(scanning) return;
+    scanning = true; scannerArea.classList.remove('hidden');
+    videoContainer.innerHTML = '';
+    try {
+      if('BarcodeDetector' in window) {
+        const formats = ['qr_code','code_128','ean_13','ean_8','upc_e','code_39'];
+        detector = new BarcodeDetector({ formats });
+        const video = document.createElement('video');
+        video.setAttribute('playsinline', 'true');
+        video.style.width='100%'; video.style.height='100%';
+        videoContainer.appendChild(video);
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+          video.srcObject = stream; await video.play();
+          const detect = async () => {
+            if(!scanning) return;
+            try {
+              const results = await detector.detect(video);
+              if(results && results.length) {
+                const code = results[0].rawValue;
+                handleScanned(code);
+                return;
+              }
+            } catch(e) { }
+            requestAnimationFrame(detect);
+          };
+          detect();
+        } catch(e) {
+          alert('تعذر الوصول للكاميرا: ' + (e.message||e));
+          stopScanner();
+        }
+        return;
+      }
+    } catch(e) {}
+    if(typeof Quagga === 'undefined') {
+      alert('المتصفح لا يدعم BarcodeDetector ولا Quagga متاح. لا يمكن المسح.');
+      stopScanner(); return;
+    }
+    try {
+      Quagga.init({
+        inputStream: { name:'Live', type:'LiveStream', target: videoContainer, constraints: { facingMode: 'environment' } },
+        decoder: { readers: ['code_128_reader','ean_reader','ean_8_reader','code_39_reader','upc_reader','upc_e_reader'] },
+        locate: true
+      }, function(err) {
+        if(err) { alert('خطأ في تهيئة Quagga: '+err); stopScanner(); return; }
+        Quagga.start();
+      });
+      Quagga.onDetected(result => {
+        if(result && result.codeResult && result.codeResult.code) {
+          handleScanned(result.codeResult.code);
+        }
+      });
+    } catch(e) {
+      alert('خطأ تشغيل الماسح: ' + e.message);
+      stopScanner();
+    }
+  }
+
+  function handleScanned(code) {
+    stopScanner();
+    searchInput.value = code;
+    const found = products.find(p=>p.barcode === code);
+    if(found) promptReceive(found.id);
+    else renderProducts(code);
+  }
+
+  function stopScanner() {
+    scanning = false; scannerArea.classList.add('hidden');
+    try { if(stream && stream.getTracks) stream.getTracks().forEach(t=>t.stop()); } catch(e) {}
+    stream = null;
+    if(detector) detector = null;
+    try { if(typeof Quagga !== 'undefined') { Quagga.stop(); Quagga.offDetected && Quagga.offDetected(); } } catch(e) {}
+    videoContainer.innerHTML = '';
+  }
+
+  openScanner.addEventListener('click', ()=> { scanning ? stopScanner() : startScanner(); });
+  closeScanner.addEventListener('click', ()=> stopScanner());
+
+  async function autoLoad() {
+    showLoading('جاري جلب products.xlsx ...');
+    try {
+      const res = await fetch('./products.xlsx');
+      if(!res.ok) throw new Error('not found');
+      const ab = await res.arrayBuffer();
+      readWorkbook(ab);
+    } catch(e) {
+      document.getElementById('needUpload').classList.remove('hidden');
+      fileInput.classList.remove('hidden');
+      hideLoading();
+    }
+  }
+
+  fileInput.addEventListener('change', async (ev)=> {
+    const f = ev.target.files && ev.target.files[0]; if(!f) return;
+    showLoading('جاري قراءة الملف...');
+    const ab = await f.arrayBuffer(); readWorkbook(ab);
+  });
+
+  function readWorkbook(arrayBuffer) {
+    try {
+      const wb = XLSX.read(arrayBuffer, { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header:1 });
+      products = [];
+      for(let i=0;i<rows.length;i++) {
+        const r = rows[i]; if(!r || r.length===0) continue;
+        const name = r[0] ? String(r[0]).trim() : '';
+        const price = r[1] !== undefined ? r[1] : '';
+        const desc = r[2] ? String(r[2]).trim() : '';
+        const barcode = r[3] ? String(r[3]).trim() : '';
+        if(!name && !price && !desc && !barcode) continue;
+        products.push({ id: i, name, price, desc, barcode });
+      }
+      renderProducts();
+    } catch(e) {
+      alert('خطأ في قراءة ملف Excel: ' + (e.message||e));
+    } finally {
+      hideLoading();
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', ()=> {
+    renderReceived();
+    autoLoad();
+  });
+
+  searchBtn.addEventListener('click', ()=> renderProducts(searchInput.value||''));
+  searchInput.addEventListener('keydown', (e)=> { if(e.key==='Enter'){ e.preventDefault(); renderProducts(searchInput.value||''); } });
+  toggleHideEmpty.addEventListener('click', ()=> { hideEmpty = !hideEmpty; toggleHideEmpty.textContent = hideEmpty ? '🧾 إظهار الكل' : '🧾 إخفاء الفارغ'; renderProducts(searchInput.value||''); });
+  clearReceived.addEventListener('click', ()=> { if(confirm('مسح كل المستلمة؟')){ localStorage.removeItem(STORAGE_KEY); renderReceived(); } });
+
+})();</script>
+
