@@ -1,1 +1,0 @@
-// separate script.js (embedded script in index.html used)
