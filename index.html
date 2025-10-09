@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>نظام عرض المنتجات — Dark Tailwind</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Tajawal', sans-serif; }
+    /* small custom print styles */
+    @media print {
+      body * { visibility: visible; }
+      #printSection * { visibility: visible; }
+      #printSection { position: static; top: 0; left: 0; width: 100%; }
+      main, header, #loading, #uploadNotice { display: none !important; }
+    }
+  </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+
+  <!-- Loading overlay -->
+  <div id="loading" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/90">
+    <div class="text-center">
+      <div class="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+      <p id="loadingText" class="text-gray-300">جاري تحميل البيانات...</p>
+    </div>
+  </div>
+
+  <header class="flex items-center justify-between p-4 border-b border-gray-800">
+    <h1 class="text-xl font-semibold text-blue-400">نظام عرض المنتجات</h1>
+    <div class="flex items-center gap-2">
+      <button id="scanBtn" class="bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded-md text-sm">📷 كاميرا</button>
+      <button id="filterBtn" class="bg-yellow-600 hover:bg-yellow-700 px-3 py-2 rounded-md text-sm">🧾 إخفاء الفارغ</button>
+      <button id="clearAllBtn" class="bg-red-600 hover:bg-red-700 px-3 py-2 rounded-md text-sm">🗑️ مسح المستلمة</button>
+    </div>
+  </header>
+
+  <main class="flex flex-1 overflow-hidden" style="min-height: calc(100vh - 72px);">
+    <!-- Left: Products list -->
+    <section class="w-1/2 p-6 overflow-auto border-r border-gray-800">
+      <div class="flex items-center gap-3 mb-4">
+        <input id="searchInput" type="text" placeholder="ابحث بالاسم أو الصق الباركود..." class="flex-1 p-2 rounded-md bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        <button id="searchBtn" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-md">بحث</button>
+        <label for="fileInput" id="uploadNotice" class="text-sm text-yellow-300 hidden">لم يتم العثور على products.xlsx — قم بتحميل ملف يدويًا:</label>
+        <input id="fileInput" type="file" accept=".xlsx,.xls" class="text-sm text-gray-300 bg-gray-800 p-2 rounded-md" />
+      </div>
+
+      <div class="overflow-auto">
+        <table class="w-full text-sm border-collapse">
+          <thead class="bg-gray-800 text-gray-300 sticky top-0">
+            <tr>
+              <th class="p-2 border border-gray-700">اسم المنتج</th>
+              <th class="p-2 border border-gray-700">السعر</th>
+              <th class="p-2 border border-gray-700">الوصف</th>
+              <th class="p-2 border border-gray-700">اوامر التوصيل</th>
+              <th class="p-2 border border-gray-700">استلام</th>
+            </tr>
+          </thead>
+          <tbody id="productTable" class="bg-gray-900 text-gray-100"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Right: Received items -->
+    <section class="w-1/2 p-6 overflow-auto">
+      <h2 class="text-lg mb-3 text-gray-200">المنتجات المستلمة</h2>
+      <div class="overflow-auto">
+        <table class="w-full text-sm border-collapse">
+          <thead class="bg-gray-800 text-gray-300">
+            <tr>
+              <th class="p-2 border border-gray-700">اسم</th>
+              <th class="p-2 border border-gray-700">سعر</th>
+              <th class="p-2 border border-gray-700">الباركود</th>
+              <th class="p-2 border border-gray-700">الكمية</th>
+              <th class="p-2 border border-gray-700">تحكم</th>
+            </tr>
+          </thead>
+          <tbody id="receivedTable" class="bg-gray-900 text-gray-100"></tbody>
+        </table>
+      </div>
+
+      <div class="flex justify-between mt-4">
+        <div class="flex gap-2">
+          <button id="exportBtn" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-md">💾 تصدير Excel</button>
+          <button id="printBtn" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-md">🖨️ عرض المعاينة</button>
+        </div>
+        <div class="text-sm text-gray-400">البيانات تحفظ محليًا عبر localStorage</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Scanner modal / area -->
+  <div id="scannerArea" class="hidden fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-6">
+    <div class="bg-gray-900 rounded-md p-4 w-full max-w-3xl">
+      <div class="flex justify-between items-center mb-3">
+        <h3 class="text-lg">كاميرا المسح</h3>
+        <div class="flex gap-2">
+          <button id="stopScan" class="bg-red-600 px-3 py-1 rounded-md">إيقاف</button>
+        </div>
+      </div>
+      <div id="interactive" class="w-full h-96 bg-black rounded-md overflow-hidden"></div>
+      <div class="text-sm text-gray-400 mt-2">سيتم إيقاف الكاميرا تلقائيًا عند قراءة باركود مطابق.</div>
+    </div>
+  </div>
+
+  <!-- Print preview section (in-page) -->
+  <section id="printSection" class="hidden fixed inset-0 z-50 bg-gray-900/95 p-6 overflow-auto">
+    <div class="max-w-[1200px] mx-auto">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl">معاينة الطباعة (3 × 7)</h2>
+        <div class="flex gap-2">
+          <button id="doPrint" class="bg-green-600 px-3 py-2 rounded-md">طباعة</button>
+          <button id="closePrint" class="bg-red-600 px-3 py-2 rounded-md">إغلاق</button>
+        </div>
+      </div>
+      <div id="printGrid" class="grid grid-cols-3 gap-4"></div>
+    </div>
+  </section>
+
+  <!-- libs -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+  <script src="https://unpkg.com/quagga@0.12.1/dist/quagga.min.js"></script>
+
+  <script src="script.js"></script>
+</body>
+</html>
